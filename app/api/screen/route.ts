@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { getShariahUniverse } from "@/lib/shariah";
 import { runDecisionAgent } from "@/lib/ai/decision";
 import { prisma } from "@/lib/prisma";
+import { getSettings } from "@/lib/settings";
+
+// Scans multiple symbols in parallel (Finnhub + DeepSeek per symbol), which
+// can exceed Vercel's default 10s Hobby-plan function timeout.
+export const maxDuration = 60;
 
 interface ScanResult {
   symbol: string;
@@ -12,10 +17,11 @@ interface ScanResult {
 
 export async function GET() {
   const universe = await getShariahUniverse();
+  const settings = await getSettings();
 
   const results = await Promise.allSettled(
     universe.map(async (stock): Promise<ScanResult> => {
-      const decision = await runDecisionAgent(stock.symbol);
+      const decision = await runDecisionAgent(stock.symbol, settings.tradingStyle);
 
       const saved = await prisma.aIRecommendation.create({
         data: {

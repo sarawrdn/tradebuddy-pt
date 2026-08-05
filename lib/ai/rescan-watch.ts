@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { runDecisionAgent } from "@/lib/ai/decision";
+import { getSettings } from "@/lib/settings";
 
 /**
  * Finds stocks whose most recent recommendation was WATCH — i.e. the AI
@@ -31,10 +32,11 @@ interface RescanResult {
 
 export async function rescanWatchStocks() {
   const stocks = await getStocksNeedingRescan();
+  const settings = await getSettings();
 
   const results = await Promise.allSettled(
     stocks.map(async (stock): Promise<RescanResult> => {
-      const decision = await runDecisionAgent(stock.symbol);
+      const decision = await runDecisionAgent(stock.symbol, settings.tradingStyle);
 
       const saved = await prisma.aIRecommendation.create({
         data: {

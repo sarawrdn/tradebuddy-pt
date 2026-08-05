@@ -11,6 +11,8 @@ import {
   type RecommendationHistoryHandle,
 } from "@/components/dashboard/recommendation-history";
 import { UpgradeAlertBanner } from "@/components/dashboard/upgrade-alert-banner";
+import { TradingStyleToggle } from "@/components/dashboard/trading-style-toggle";
+import { safeJson } from "@/lib/utils";
 
 interface ScanResult {
   symbol: string;
@@ -39,7 +41,7 @@ export default function AnalysisPage() {
     setError(null);
     try {
       const res = await fetch(`/api/recommend?symbol=${encodeURIComponent(s)}`);
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) throw new Error(data.error ?? "Failed to generate recommendation");
       setResult(data);
       historyRef.current?.refresh();
@@ -56,7 +58,7 @@ export default function AnalysisPage() {
     setScanError(null);
     try {
       const res = await fetch("/api/screen");
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) throw new Error(data.error ?? "Failed to scan stock universe");
       setScanned(data.scanned ?? []);
       historyRef.current?.refresh();
@@ -72,7 +74,10 @@ export default function AnalysisPage() {
       <UpgradeAlertBanner />
 
       <div className="flex flex-col gap-6">
-        <h1 className="text-2xl font-semibold">AI Analysis</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">AI Analysis</h1>
+          <TradingStyleToggle />
+        </div>
 
         <Card className="flex flex-row gap-3 p-4">
           <Input

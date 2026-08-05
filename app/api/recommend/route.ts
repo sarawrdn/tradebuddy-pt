@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runDecisionAgent } from "@/lib/ai/decision";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateStock } from "@/lib/shariah";
+import { getSettings } from "@/lib/settings";
 
 export async function GET(req: NextRequest) {
   const symbol = req.nextUrl.searchParams.get("symbol")?.trim().toUpperCase();
@@ -10,7 +11,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const decision = await runDecisionAgent(symbol);
+    const settings = await getSettings();
+    const decision = await runDecisionAgent(symbol, settings.tradingStyle);
     const stock = await getOrCreateStock(symbol);
 
     const saved = await prisma.aIRecommendation.create({

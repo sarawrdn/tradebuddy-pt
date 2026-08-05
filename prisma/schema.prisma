@@ -211,6 +211,21 @@ model AIRecommendation {
 }
 
 // ---------------------------------------------------------------------------
+// App Settings — single-row config for this personal, single-user app.
+// ---------------------------------------------------------------------------
+
+enum TradingStyle {
+  INTRADAY
+  SWING
+}
+
+model AppSettings {
+  id           String       @id @default(cuid())
+  tradingStyle TradingStyle @default(INTRADAY)
+  updatedAt    DateTime     @updatedAt
+}
+
+// ---------------------------------------------------------------------------
 // Paper Trading (PRD 11 - Roadmap Phase 3: Paper trading, AI performance scoring)
 //
 // Simulated trades derived from an approved AI recommendation. No real money
