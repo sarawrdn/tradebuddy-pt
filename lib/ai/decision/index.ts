@@ -25,13 +25,19 @@ Rules:
   "supportingReasons": string[]
 }`;
 
-const STYLE_INSTRUCTIONS: Record<TradingStyle, string> = {
+// Bounds as a fraction of current price. Tight enough to avoid swing-width
+// targets under an "intraday" label, loose enough to survive normal
+// intraday noise plus polling-interval slippage before hitting a wall.
+const STYLE_BOUNDS: Record<TradingStyle, { stopMin: number; stopMax: number; targetMin: number; targetMax: number }> = {
+  INTRADAY: { stopMin: 0.004, stopMax: 0.015, targetMin: 0.006, targetMax: 0.025 },
+  SWING: { stopMin: 0.03, stopMax: 0.1, targetMin: 0.05, targetMax: 0.2 },
+};
+
+const STYLE_LABEL: Record<TradingStyle, string> = {
   INTRADAY: `Trading style: INTRADAY (same-day).
-- Entry, stop loss, and take profit must all be reachable within today's session — base them on the day's high/low range, not a multi-week move.
 - holdingPeriod must be expressed in minutes or hours (e.g. "1-3 hours"), never days/weeks/months.
 - Prefer WATCH over BUY if today's range is too tight or too volatile for a same-day round trip to make sense.`,
   SWING: `Trading style: SWING (position hold, weeks to months).
-- Entry, stop loss, and take profit should reflect a multi-week to multi-month thesis, not intraday noise.
 - holdingPeriod must be expressed in weeks or months (e.g. "1-3 months").
 - Day-to-day price fluctuation is expected and should not by itself trigger a SELL/WATCH downgrade.`,
 };
@@ -43,7 +49,17 @@ export async function runDecisionAgent(
   const quote = await getQuote(symbol);
   const client = getDeepSeekClient();
 
-  const systemPrompt = `${BASE_PROMPT}\n\n${STYLE_INSTRUCTIONS[style]}`;
+  const bounds = STYLE_BOUNDS[style];
+  const price = quote.price;
+  const stopFloor = (price * (1 - bounds.stopMax)).toFixed(2);
+  const stopCeil = (price * (1 - bounds.stopMin)).toFixed(2);
+  const targetFloor = (price * (1 + bounds.targetMin)).toFixed(2);
+  const targetCeil = (price * (1 + bounds.targetMax)).toFixed(2);
+
+  const systemPrompt = `${BASE_PROMPT}
+
+${STYLE_LABEL[style]}
+- Current price is ${price}. If recommending BUY or WATCH, stopLoss MUST be between ${stopFloor} and ${stopCeil}, and takeProfit MUST be between ${targetFloor} and ${targetCeil}. These bounds are fixed for this trading style — do not go outside them even if you think the stock deserves a wider or tighter range; that's a signal to change the recommendation or confidence instead, not the bounds.`;
 
   const userPrompt = `Symbol: ${symbol}
 Current price: ${quote.price}

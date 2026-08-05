@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { safeJson } from "@/lib/utils";
 
 interface PaperTrade {
   id: string;
@@ -42,14 +43,14 @@ export default function PaperTradesPage() {
 
   async function load() {
     const res = await fetch("/api/paper-trades");
-    const data = await res.json();
+    const data = await safeJson(res);
     setOrders(data.paperTrades ?? []);
     setLoading(false);
   }
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 30_000);
+    const interval = setInterval(load, 15_000);
     return () => clearInterval(interval);
   }, []);
 

@@ -17,6 +17,8 @@ const REC_STYLES: Record<string, string> = {
 
 export type Recommendation = DecisionOutput & { id: string };
 
+const MIN_APPROVE_CONFIDENCE = 70;
+
 export function RecommendationCard({
   symbol,
   company,
@@ -33,9 +35,9 @@ export function RecommendationCard({
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canApprove =
-    (recommendation.recommendation === "BUY" || recommendation.recommendation === "WATCH") &&
-    !!recommendation.entryPrice;
+  const eligibleType = recommendation.recommendation === "BUY" || recommendation.recommendation === "WATCH";
+  const meetsConfidence = recommendation.confidence >= MIN_APPROVE_CONFIDENCE;
+  const showApproveSection = eligibleType && !!recommendation.entryPrice;
   const qtyNumber = Number(quantity);
   const totalCost =
     recommendation.entryPrice && !Number.isNaN(qtyNumber) ? recommendation.entryPrice * qtyNumber : null;
@@ -117,11 +119,16 @@ export function RecommendationCard({
 
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
-      {canApprove && (
+      {showApproveSection && (
         <div className="mt-5 flex items-center gap-3 border-t pt-4">
           {approved ? (
             <p className="text-sm font-medium text-emerald-600">
               Approved — paper trade order placed. Check the Paper Trades page for fills.
+            </p>
+          ) : !meetsConfidence ? (
+            <p className="text-xs text-muted-foreground">
+              Confidence ({recommendation.confidence}%) is below the {MIN_APPROVE_CONFIDENCE}% threshold to
+              approve — this call isn&apos;t strong enough to trade on.
             </p>
           ) : (
             <div className="flex w-full flex-col gap-2">

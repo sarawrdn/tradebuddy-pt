@@ -8,6 +8,8 @@ import { checkAndFillOrders } from "@/lib/paper-trading";
 // Hobby-plan function timeout.
 export const maxDuration = 30;
 
+const MIN_APPROVE_CONFIDENCE = 70;
+
 export async function GET() {
   await checkAndFillOrders();
 
@@ -32,6 +34,16 @@ export async function POST(req: NextRequest) {
 
   if (Number.isNaN(qty) || Number.isNaN(entry)) {
     return NextResponse.json({ error: "quantity and entryPrice must be numbers" }, { status: 400 });
+  }
+
+  if (recommendationId) {
+    const recommendation = await prisma.aIRecommendation.findUnique({ where: { id: recommendationId } });
+    if (recommendation && Number(recommendation.confidence) < MIN_APPROVE_CONFIDENCE) {
+      return NextResponse.json(
+        { error: `Confidence (${recommendation.confidence}%) is below the ${MIN_APPROVE_CONFIDENCE}% threshold to approve` },
+        { status: 400 }
+      );
+    }
   }
 
   const stock = await getOrCreateStock(String(symbol).trim().toUpperCase());
