@@ -1,0 +1,36 @@
+import { NextRequest, NextResponse } from "next/server";
+import { runDecisionAgent } from "@/lib/ai/decision";
+import { prisma } from "@/lib/prisma";
+import { getOrCreateStock } from "@/lib/shariah";
+
+export async function GET(req: NextRequest) {
+  const symbol = req.nextUrl.searchParams.get("symbol")?.trim().toUpperCase();
+  if (!symbol) {
+    return NextResponse.json({ error: "symbol query param is required" }, { status: 400 });
+  }
+
+  try {
+    const decision = await runDecisionAgent(symbol);
+    const stock = await getOrCreateStock(symbol);
+
+    const saved = await prisma.aIRecommendation.create({
+      data: {
+        stockId: stock.id,
+        recommendation: decision.recommendation,
+        confidence: decision.confidence,
+        entryPrice: decision.entryPrice,
+        stopLoss: decision.stopLoss,
+        takeProfit: decision.takeProfit,
+        holdingPeriod: decision.holdingPeriod,
+        investmentThesis: decision.investmentThesis,
+        riskLevel: decision.riskLevel,
+        supportingReasons: decision.supportingReasons,
+      },
+    });
+
+    return NextResponse.json({ symbol, recommendation: { ...decision, id: saved.id } });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to generate recommendation";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
