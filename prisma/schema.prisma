@@ -182,6 +182,7 @@ model AIRecommendation {
   stockId           String
   stock             ShariahStock   @relation(fields: [stockId], references: [id])
   date              DateTime       @default(now())
+  tradingStyle      TradingStyle   @default(INTRADAY)
   recommendation    Recommendation
   confidence        Decimal        @db.Decimal(5, 2)
   entryPrice        Decimal?       @db.Decimal(20, 6)

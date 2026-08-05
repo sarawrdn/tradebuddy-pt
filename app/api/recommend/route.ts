@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
     const saved = await prisma.aIRecommendation.create({
       data: {
         stockId: stock.id,
+        tradingStyle: settings.tradingStyle,
         recommendation: decision.recommendation,
         confidence: decision.confidence,
         entryPrice: decision.entryPrice,

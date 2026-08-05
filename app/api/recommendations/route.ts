@@ -1,8 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const styleParam = req.nextUrl.searchParams.get("style");
+  const tradingStyle = styleParam === "INTRADAY" || styleParam === "SWING" ? styleParam : undefined;
+
   const rows = await prisma.aIRecommendation.findMany({
+    where: tradingStyle ? { tradingStyle } : undefined,
     include: { stock: true },
     orderBy: { date: "desc" },
     take: 50,
@@ -12,6 +16,7 @@ export async function GET() {
     symbol: r.stock.symbol,
     company: r.stock.company,
     dateGenerated: r.date.toISOString(),
+    tradingStyle: r.tradingStyle,
     recommendation: {
       id: r.id,
       recommendation: r.recommendation,

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import type { DecisionOutput } from "@/lib/ai/types";
+import { safeJson } from "@/lib/utils";
 
 const REC_STYLES: Record<string, string> = {
   BUY: "bg-emerald-100 text-emerald-700",
@@ -32,7 +33,9 @@ export function RecommendationCard({
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canApprove = recommendation.recommendation === "BUY" && !!recommendation.entryPrice;
+  const canApprove =
+    (recommendation.recommendation === "BUY" || recommendation.recommendation === "WATCH") &&
+    !!recommendation.entryPrice;
   const qtyNumber = Number(quantity);
   const totalCost =
     recommendation.entryPrice && !Number.isNaN(qtyNumber) ? recommendation.entryPrice * qtyNumber : null;
@@ -53,7 +56,7 @@ export function RecommendationCard({
           takeProfit: recommendation.takeProfit,
         }),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) throw new Error(data.error ?? "Failed to approve trade");
       setApproved(true);
     } catch (err) {
@@ -122,6 +125,12 @@ export function RecommendationCard({
             </p>
           ) : (
             <div className="flex w-full flex-col gap-2">
+              {recommendation.recommendation === "WATCH" && (
+                <p className="text-xs text-amber-700">
+                  This is a WATCH, not a BUY — the AI wasn&apos;t confident enough to call it. Approving
+                  overrides that caution.
+                </p>
+              )}
               <div className="flex items-center gap-3">
                 <label className="text-xs text-muted-foreground">Quantity</label>
                 <Input
