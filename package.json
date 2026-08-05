@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "postinstall": "prisma generate",
     "seed:shariah": "node --env-file=.env --import tsx scripts/import-shariah/index.ts"
   },
   "dependencies": {
