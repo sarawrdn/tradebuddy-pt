@@ -37,14 +37,30 @@ const STATUS_STYLES: Record<string, string> = {
   CANCELLED: "bg-slate-100 text-slate-500",
 };
 
+interface SymbolStat {
+  symbol: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  totalProfit: number;
+  winRate: number;
+  avgProfit: number;
+}
+
 export default function PaperTradesPage() {
   const [orders, setOrders] = useState<PaperTrade[]>([]);
+  const [stats, setStats] = useState<SymbolStat[]>([]);
   const [loading, setLoading] = useState(true);
 
   async function load() {
-    const res = await fetch("/api/paper-trades");
-    const data = await safeJson(res);
-    setOrders(data.paperTrades ?? []);
+    const [ordersRes, statsRes] = await Promise.all([
+      fetch("/api/paper-trades"),
+      fetch("/api/paper-trades/stats"),
+    ]);
+    const ordersData = await safeJson(ordersRes);
+    const statsData = await safeJson(statsRes);
+    setOrders(ordersData.paperTrades ?? []);
+    setStats(statsData.stats ?? []);
     setLoading(false);
   }
 
@@ -87,6 +103,55 @@ export default function PaperTradesPage() {
           <p className={`mt-1 text-xl font-semibold ${closedProfit >= 0 ? "text-emerald-600" : "text-red-500"}`}>
             {closedProfit >= 0 ? "+" : ""}${closedProfit.toFixed(2)}
           </p>
+        </Card>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Win Rate by Stock</h2>
+          <p className="text-xs text-muted-foreground">
+            What has actually happened, not a prediction — small sample sizes here aren&apos;t
+            statistically meaningful yet.
+          </p>
+        </div>
+        <Card className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Symbol</TableHead>
+                <TableHead className="text-right">Trades</TableHead>
+                <TableHead className="text-right">Wins</TableHead>
+                <TableHead className="text-right">Losses</TableHead>
+                <TableHead className="text-right">Win Rate</TableHead>
+                <TableHead className="text-right">Avg P/L</TableHead>
+                <TableHead className="text-right">Total P/L</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {!loading && stats.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
+                    No closed trades yet.
+                  </TableCell>
+                </TableRow>
+              )}
+              {stats.map((s) => (
+                <TableRow key={s.symbol}>
+                  <TableCell className="font-medium">{s.symbol}</TableCell>
+                  <TableCell className="text-right">{s.trades}</TableCell>
+                  <TableCell className="text-right text-emerald-600">{s.wins}</TableCell>
+                  <TableCell className="text-right text-red-500">{s.losses}</TableCell>
+                  <TableCell className="text-right">{s.winRate.toFixed(0)}%</TableCell>
+                  <TableCell className={`text-right ${s.avgProfit >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                    {s.avgProfit >= 0 ? "+" : ""}${s.avgProfit.toFixed(2)}
+                  </TableCell>
+                  <TableCell className={`text-right ${s.totalProfit >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                    {s.totalProfit >= 0 ? "+" : ""}${s.totalProfit.toFixed(2)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </Card>
       </div>
 
