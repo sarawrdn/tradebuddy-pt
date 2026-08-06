@@ -8,7 +8,11 @@ import { checkAndFillOrders } from "@/lib/paper-trading";
 // Hobby-plan function timeout.
 export const maxDuration = 30;
 
-const MIN_APPROVE_CONFIDENCE = 70;
+// 70% never occurs in practice: the Decision Agent only has today's live
+// quote to reason from (no historical/fundamental data), so it correctly
+// stays in a 45-65% confidence band. 60% matches the top of that realistic
+// range instead of an unreachable bar.
+const MIN_APPROVE_CONFIDENCE = 60;
 
 export async function GET() {
   await checkAndFillOrders();
