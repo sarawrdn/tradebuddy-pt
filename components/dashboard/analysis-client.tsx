@@ -53,6 +53,7 @@ export function AnalysisClient({
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanned, setScanned] = useState<ScanResult[] | null>(null);
+  const [skippedAboveMaxPrice, setSkippedAboveMaxPrice] = useState(0);
 
   const historyRef = useRef<RecommendationHistoryHandle>(null);
 
@@ -84,6 +85,7 @@ export function AnalysisClient({
       const data = await safeJson(res);
       if (!res.ok) throw new Error(data.error ?? "Failed to scan stock universe");
       setScanned(data.scanned ?? []);
+      setSkippedAboveMaxPrice(data.skippedAboveMaxPrice ?? 0);
       historyRef.current?.refresh();
     } catch (err) {
       setScanError(err instanceof Error ? err.message : "Failed to scan stock universe");
@@ -127,7 +129,7 @@ export function AnalysisClient({
           <div>
             <h2 className="text-xl font-semibold">Screen Stock Universe</h2>
             <p className="text-sm text-muted-foreground">
-              Scans your Shariah stock list and ranks candidates worth a closer look.
+              Scans your Shariah stock list for candidates under $120 and ranks the results.
             </p>
           </div>
           <Button onClick={scanUniverse} disabled={scanning}>
@@ -139,6 +141,13 @@ export function AnalysisClient({
           Shariah status shown here is not independently verified — treat it as a research
           shortlist, not a compliance ruling, until backed by a real screening service.
         </Card>
+
+        {scanned && skippedAboveMaxPrice > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Skipped {skippedAboveMaxPrice} stock{skippedAboveMaxPrice === 1 ? "" : "s"} currently priced at
+            $120 or above.
+          </p>
+        )}
 
         {scanError && <Card className="border-red-200 bg-red-50 p-3 text-sm text-red-700">{scanError}</Card>}
 

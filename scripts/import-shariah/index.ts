@@ -24,6 +24,23 @@ const STARTER_LIST = [
   { symbol: "HD", company: "Home Depot Inc", sector: "Consumer Cyclical", industry: "Home Improvement Retail" },
   { symbol: "NKE", company: "Nike Inc", sector: "Consumer Cyclical", industry: "Footwear & Accessories" },
   { symbol: "TSLA", company: "Tesla Inc", sector: "Consumer Cyclical", industry: "Auto Manufacturers" },
+
+  // Added for under-$120 coverage — semiconductors/hardware skew.
+  { symbol: "AMD", company: "Advanced Micro Devices", sector: "Technology", industry: "Semiconductors" },
+  { symbol: "ARM", company: "Arm Holdings", sector: "Technology", industry: "Semiconductor IP" },
+  { symbol: "ON", company: "ON Semiconductor", sector: "Technology", industry: "Semiconductors" },
+  { symbol: "STX", company: "Seagate Technology", sector: "Technology", industry: "Data Storage" },
+  { symbol: "SNDK", company: "Sandisk", sector: "Technology", industry: "Storage" },
+  { symbol: "CSCO", company: "Cisco Systems", sector: "Technology", industry: "Networking" },
+  { symbol: "INTC", company: "Intel Corp", sector: "Technology", industry: "Semiconductors" },
+  { symbol: "DELL", company: "Dell Technologies", sector: "Technology", industry: "Computer Hardware" },
+  { symbol: "HPQ", company: "HP Inc", sector: "Technology", industry: "Computers" },
+  { symbol: "HPE", company: "Hewlett Packard Enterprise", sector: "Technology", industry: "Enterprise IT" },
+  { symbol: "MU", company: "Micron Technology", sector: "Technology", industry: "Memory Chips" },
+  { symbol: "WDC", company: "Western Digital", sector: "Technology", industry: "Data Storage" },
+  { symbol: "UBER", company: "Uber Technologies", sector: "Technology", industry: "Technology" },
+  { symbol: "GFS", company: "GlobalFoundries", sector: "Technology", industry: "Semiconductor Manufacturing" },
+  { symbol: "PINS", company: "Pinterest", sector: "Communication Services", industry: "Internet Services" },
 ];
 
 async function main() {
