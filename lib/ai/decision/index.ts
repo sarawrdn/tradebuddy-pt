@@ -74,7 +74,12 @@ ${STYLE_LABEL[style]}
 14-day RSI: ${tech.rsi14?.toFixed(1) ?? "n/a"} (below 30 = oversold, above 70 = overbought)
 Price vs 20-day SMA: ${tech.priceVsSma20Pct !== null ? tech.priceVsSma20Pct.toFixed(2) + "%" : "n/a"}
 5-day price change: ${tech.fiveDayChangePct !== null ? tech.fiveDayChangePct.toFixed(2) + "%" : "n/a"}
-5-day trend: ${tech.trend}`;
+5-day trend: ${tech.trend}
+MACD: ${tech.macd ? `${tech.macd.histogram > 0 ? "positive" : "negative"} histogram, crossover=${tech.macd.crossover}` : "n/a (not enough history)"}
+Volume vs 20-day average: ${tech.volumeRatio !== null ? tech.volumeRatio.toFixed(2) + "x" : "n/a"} (>1.3x = above-average participation, confirms conviction behind a move)
+20-day high: ${tech.high20?.toFixed(2) ?? "n/a"} (price is ${tech.distanceFromHigh20Pct !== null ? tech.distanceFromHigh20Pct.toFixed(1) + "%" : "n/a"} from it — near 0% means at resistance)
+20-day low: ${tech.low20?.toFixed(2) ?? "n/a"} (price is ${tech.distanceFromLow20Pct !== null ? tech.distanceFromLow20Pct.toFixed(1) + "%" : "n/a"} from it — near 0% means at support)
+ATR (14-day, volatility): ${tech.atrPct !== null ? tech.atrPct.toFixed(2) + "% of price" : "n/a"} — use this to judge whether your stop/target bounds are realistic for how much this stock actually moves`;
       technicalSignalResult = deriveTechnicalSignal(tech);
     }
   } catch {
@@ -93,9 +98,12 @@ As of: ${quote.asOf.toISOString()}
 Technical indicators (last 20-30 trading days):
 ${technicalSection}
 
-Use the technical indicators above as real evidence for your confidence level — a clear trend with
-supporting RSI is legitimate grounds for higher confidence than quote data alone. Still no fundamentals
-or news are available; say so in the thesis if that would materially change the call.`;
+Use the technical indicators above as real evidence for your confidence level. Multiple indicators
+agreeing (e.g. uptrend + healthy RSI + bullish MACD + above-average volume + room before resistance)
+is legitimate grounds for real confidence — don't stay artificially conservative when the evidence
+lines up. Conversely, indicators conflicting with each other (e.g. price near its 20-day high while
+MACD is turning negative) is a real reason to stay cautious. Still no fundamentals or news are
+available; say so in the thesis if that would materially change the call.`;
 
   const completion = await client.chat.completions.create({
     model: "deepseek-chat",

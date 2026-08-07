@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getOrCreateStock, getShariahUniverse } from "@/lib/shariah";
 
 const TWELVE_DATA_API = "https://api.twelvedata.com";
-const HISTORY_DAYS = 30;
+const HISTORY_DAYS = 45; // MACD needs 35+ data points (26 + 9 for its signal line)
 
 export interface Candle {
   date: Date;
