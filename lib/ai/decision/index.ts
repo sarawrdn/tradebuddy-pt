@@ -102,7 +102,10 @@ or news are available; say so in the thesis if that would materially change the 
       { role: "user", content: userPrompt },
     ],
     response_format: { type: "json_object" },
-    temperature: 0.3,
+    // Near-zero to make the same inputs produce consistent output — with
+    // 0.3 the same technical data could swing between BUY and WATCH by 30
+    // confidence points from one call to the next.
+    temperature: 0,
   });
 
   const raw = completion.choices[0]?.message?.content;
