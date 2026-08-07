@@ -35,4 +35,11 @@ export interface DecisionOutput {
   investmentThesis: string;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
   supportingReasons: string[];
+  /**
+   * Deterministic, rule-based read on the same indicators (RSI/SMA/trend)
+   * — no model, no randomness. A sanity-check to compare against the AI's
+   * `recommendation`/`confidence` above, not a replacement for it.
+   */
+  technicalSignal?: "BUY" | "WATCH" | "SELL";
+  technicalReasoning?: string[];
 }

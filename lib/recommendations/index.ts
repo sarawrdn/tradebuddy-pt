@@ -38,6 +38,8 @@ export async function getLatestRecommendations() {
       investmentThesis: r.investmentThesis,
       riskLevel: r.riskLevel,
       supportingReasons: (r.supportingReasons as string[]) ?? [],
+      technicalSignal: (r.technicalSignal as "BUY" | "WATCH" | "SELL" | null) ?? undefined,
+      technicalReasoning: (r.technicalReasoning as string[] | null) ?? undefined,
     },
   });
 

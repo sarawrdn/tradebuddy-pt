@@ -51,6 +51,8 @@ export async function rescanWatchStocks() {
           investmentThesis: decision.investmentThesis,
           riskLevel: decision.riskLevel,
           supportingReasons: decision.supportingReasons,
+          technicalSignal: decision.technicalSignal,
+          technicalReasoning: decision.technicalReasoning,
         },
       });
 

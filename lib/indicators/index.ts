@@ -71,3 +71,56 @@ export function summarizeTechnicals(candles: OHLCV[]): TechnicalSummary {
 
   return { sma20, rsi14, trend, priceVsSma20Pct, fiveDayChangePct };
 }
+
+export type TechnicalSignal = "BUY" | "WATCH" | "SELL";
+
+export interface TechnicalSignalResult {
+  signal: TechnicalSignal;
+  reasoning: string[];
+}
+
+/**
+ * Deterministic, rule-based read on the same indicators fed to the AI — no
+ * randomness, no model variance. Meant as a sanity-check baseline to
+ * compare against the AI's call, not a replacement for it: it only looks
+ * at RSI/SMA/trend, nothing about volume, support/resistance, or context.
+ */
+export function deriveTechnicalSignal(tech: TechnicalSummary): TechnicalSignalResult {
+  const reasoning: string[] = [];
+
+  if (tech.rsi14 === null || tech.sma20 === null || tech.priceVsSma20Pct === null) {
+    return { signal: "WATCH", reasoning: ["Not enough price history yet for a rule-based read."] };
+  }
+
+  const overbought = tech.rsi14 >= 70;
+  const oversold = tech.rsi14 <= 30;
+  const aboveSma = tech.priceVsSma20Pct > 0;
+  const belowSma = tech.priceVsSma20Pct < 0;
+
+  if (overbought) {
+    reasoning.push(`RSI at ${tech.rsi14.toFixed(0)} is overbought (>=70).`);
+    return { signal: "SELL", reasoning };
+  }
+
+  if (oversold && tech.trend !== "DOWN") {
+    reasoning.push(`RSI at ${tech.rsi14.toFixed(0)} is oversold (<=30) with a non-falling trend — potential bounce.`);
+    return { signal: "BUY", reasoning };
+  }
+
+  if (tech.trend === "UP" && aboveSma && tech.rsi14 > 45 && tech.rsi14 < 70) {
+    reasoning.push(
+      `Uptrend, price ${tech.priceVsSma20Pct.toFixed(1)}% above its 20-day average, RSI ${tech.rsi14.toFixed(0)} healthy (not overbought).`
+    );
+    return { signal: "BUY", reasoning };
+  }
+
+  if (tech.trend === "DOWN" && belowSma) {
+    reasoning.push(
+      `Downtrend, price ${tech.priceVsSma20Pct.toFixed(1)}% below its 20-day average.`
+    );
+    return { signal: "WATCH", reasoning };
+  }
+
+  reasoning.push("Mixed or flat signals — no clear directional edge from RSI/SMA/trend alone.");
+  return { signal: "WATCH", reasoning };
+}

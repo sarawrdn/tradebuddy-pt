@@ -28,6 +28,8 @@ export async function GET(req: NextRequest) {
         investmentThesis: decision.investmentThesis,
         riskLevel: decision.riskLevel,
         supportingReasons: decision.supportingReasons,
+        technicalSignal: decision.technicalSignal,
+        technicalReasoning: decision.technicalReasoning,
       },
     });
 

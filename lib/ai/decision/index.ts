@@ -1,7 +1,7 @@
 import { getDeepSeekClient } from "@/lib/ai/deepseek";
 import { getQuote } from "@/lib/market";
 import { getDailyHistory } from "@/lib/market-history";
-import { summarizeTechnicals } from "@/lib/indicators";
+import { summarizeTechnicals, deriveTechnicalSignal } from "@/lib/indicators";
 import type { DecisionOutput } from "@/lib/ai/types";
 
 export type TradingStyle = "INTRADAY" | "SWING";
@@ -65,6 +65,7 @@ ${STYLE_LABEL[style]}
 - Current price is ${price}. If recommending BUY or WATCH, stopLoss MUST be between ${stopFloor} and ${stopCeil}, and takeProfit MUST be between ${targetFloor} and ${targetCeil}. These bounds are fixed for this trading style — do not go outside them even if you think the stock deserves a wider or tighter range; that's a signal to change the recommendation or confidence instead, not the bounds.`;
 
   let technicalSection = "No historical price data available — reason from the live quote alone.";
+  let technicalSignalResult: { signal: "BUY" | "WATCH" | "SELL"; reasoning: string[] } | null = null;
   try {
     const history = await getDailyHistory(symbol);
     if (history.length >= 6) {
@@ -74,6 +75,7 @@ ${STYLE_LABEL[style]}
 Price vs 20-day SMA: ${tech.priceVsSma20Pct !== null ? tech.priceVsSma20Pct.toFixed(2) + "%" : "n/a"}
 5-day price change: ${tech.fiveDayChangePct !== null ? tech.fiveDayChangePct.toFixed(2) + "%" : "n/a"}
 5-day trend: ${tech.trend}`;
+      technicalSignalResult = deriveTechnicalSignal(tech);
     }
   } catch {
     // Twelve Data unavailable/rate-limited — fall back to quote-only reasoning.
@@ -111,5 +113,12 @@ or news are available; say so in the thesis if that would materially change the 
   const raw = completion.choices[0]?.message?.content;
   if (!raw) throw new Error("DeepSeek returned no content");
 
-  return JSON.parse(raw) as DecisionOutput;
+  const decision = JSON.parse(raw) as DecisionOutput;
+
+  if (technicalSignalResult) {
+    decision.technicalSignal = technicalSignalResult.signal;
+    decision.technicalReasoning = technicalSignalResult.reasoning;
+  }
+
+  return decision;
 }

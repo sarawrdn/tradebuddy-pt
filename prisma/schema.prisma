@@ -222,6 +222,11 @@ model AIRecommendation {
   fundamentalScore Decimal? @db.Decimal(5, 2)
   sentimentScore   Decimal? @db.Decimal(5, 2)
 
+  // Deterministic rule-based signal (RSI/SMA/trend, no AI) — a sanity-check
+  // baseline alongside `recommendation` above, which comes from DeepSeek.
+  technicalSignal    Recommendation?
+  technicalReasoning Json?
+
   userDecision      UserDecision @default(PENDING)
   resultAfter1Day   Decimal?     @db.Decimal(9, 4)
   resultAfter7Days  Decimal?     @db.Decimal(9, 4)

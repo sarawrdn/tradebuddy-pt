@@ -87,6 +87,33 @@ export function RecommendationCard({
         </Badge>
       </div>
 
+      {recommendation.technicalSignal && (
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <div className="rounded-xl border p-3">
+            <p className="text-xs text-muted-foreground">AI Signal (DeepSeek)</p>
+            <Badge className={REC_STYLES[recommendation.recommendation]} variant="secondary">
+              {recommendation.recommendation}
+            </Badge>
+          </div>
+          <div className="rounded-xl border p-3">
+            <p className="text-xs text-muted-foreground">Data Signal (rule-based, no AI)</p>
+            <Badge className={REC_STYLES[recommendation.technicalSignal]} variant="secondary">
+              {recommendation.technicalSignal}
+            </Badge>
+          </div>
+          {recommendation.technicalSignal !== recommendation.recommendation && (
+            <p className="col-span-2 text-xs text-amber-700">
+              These disagree — worth reading both reasonings below before trusting either alone.
+            </p>
+          )}
+          {recommendation.technicalReasoning && recommendation.technicalReasoning.length > 0 && (
+            <p className="col-span-2 text-xs text-muted-foreground">
+              {recommendation.technicalReasoning.join(" ")}
+            </p>
+          )}
+        </div>
+      )}
+
       <p className="text-sm text-muted-foreground">{recommendation.investmentThesis}</p>
 
       <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
