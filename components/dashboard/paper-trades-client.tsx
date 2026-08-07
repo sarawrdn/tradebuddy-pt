@@ -167,16 +167,16 @@ export function PaperTradesClient({
   const openCount = orders.filter((o) => o.status === "OPEN").length;
   const pendingCount = orders.filter((o) => o.status === "PENDING").length;
 
-  const intradayOrders = orders.filter((o) => o.tradingStyle === "INTRADAY");
   const swingOrders = orders.filter((o) => o.tradingStyle === "SWING");
+  const swingStats = stats.filter((s) => s.tradingStyle === "SWING");
 
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold">Paper Trades</h1>
       <p className="text-sm text-muted-foreground">
-        Simulated orders from approved AI recommendations. No real money involved — used to test the bot&apos;s accuracy.
-        Intraday positions force-close after 8 hours open; swing positions are held until they hit their
-        stop loss or take profit, however long that takes.
+        Simulated orders from approved AI recommendations. No real money involved — used to test the
+        bot&apos;s accuracy. Positions are held until they hit their stop loss or take profit, however
+        long that takes. (Intraday is hidden while focus is on swing.)
       </p>
 
       <div className="grid grid-cols-3 gap-4">
@@ -209,7 +209,6 @@ export function PaperTradesClient({
             <TableHeader>
               <TableRow>
                 <TableHead>Symbol</TableHead>
-                <TableHead>Style</TableHead>
                 <TableHead className="text-right">Trades</TableHead>
                 <TableHead className="text-right">Wins</TableHead>
                 <TableHead className="text-right">Losses</TableHead>
@@ -219,19 +218,16 @@ export function PaperTradesClient({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {stats.length === 0 && (
+              {swingStats.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
                     No closed trades yet.
                   </TableCell>
                 </TableRow>
               )}
-              {stats.map((s) => (
+              {swingStats.map((s) => (
                 <TableRow key={`${s.symbol}-${s.tradingStyle}`}>
                   <TableCell className="font-medium">{s.symbol}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {s.tradingStyle === "INTRADAY" ? "Intraday" : "Swing"}
-                  </TableCell>
                   <TableCell className="text-right">{s.trades}</TableCell>
                   <TableCell className="text-right text-emerald-600">{s.wins}</TableCell>
                   <TableCell className="text-right text-red-500">{s.losses}</TableCell>
@@ -249,7 +245,6 @@ export function PaperTradesClient({
         </Card>
       </div>
 
-      <OrdersTable title="Intraday" orders={intradayOrders} onCancel={cancel} />
       <OrdersTable title="Swing" orders={swingOrders} onCancel={cancel} />
     </div>
   );

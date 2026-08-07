@@ -42,14 +42,12 @@ function Section({ title, items }: { title: string; items: HistoryItem[] }) {
 export const RecommendationHistory = forwardRef<
   RecommendationHistoryHandle,
   { initialIntraday: HistoryItem[]; initialSwing: HistoryItem[] }
->(({ initialIntraday, initialSwing }, ref) => {
-  const [intraday, setIntraday] = useState<HistoryItem[]>(initialIntraday);
+>(({ initialSwing }, ref) => {
   const [swing, setSwing] = useState<HistoryItem[]>(initialSwing);
 
   async function load() {
     const res = await fetch("/api/recommendations");
     const data = await safeJson(res);
-    setIntraday(data.intraday ?? []);
     setSwing(data.swing ?? []);
   }
 
@@ -58,10 +56,9 @@ export const RecommendationHistory = forwardRef<
   return (
     <div className="flex flex-col gap-8">
       <p className="text-xs text-muted-foreground">
-        Showing the latest recommendation per stock for each style — older calls stay recorded but are
-        superseded once a fresh scan runs.
+        Showing the latest recommendation per stock — older calls stay recorded but are superseded
+        once a fresh scan runs. Intraday is hidden while focus is on swing.
       </p>
-      <Section title="Intraday" items={intraday} />
       <Section title="Swing" items={swing} />
     </div>
   );
