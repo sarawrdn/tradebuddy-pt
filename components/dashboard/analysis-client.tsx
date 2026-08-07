@@ -104,13 +104,13 @@ export function AnalysisClient({
           <TradingStyleToggle initialStyle={initialTradingStyle} />
         </div>
 
-        <Card className="flex flex-row gap-3 p-4">
+        <Card className="flex flex-col gap-3 p-4 sm:flex-row">
           <Input
             placeholder="Enter a symbol, e.g. AAPL"
             value={symbol}
             onChange={(e) => setSymbol(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && getRecommendation()}
-            className="max-w-xs"
+            className="sm:max-w-xs"
           />
           <Button onClick={getRecommendation} disabled={loading || !symbol.trim()}>
             {loading ? "Analyzing…" : "Get Recommendation"}

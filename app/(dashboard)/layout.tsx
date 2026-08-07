@@ -3,6 +3,7 @@ import { Home, LineChart, FlaskConical, Zap } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { PaperTradeHeartbeat } from "@/components/dashboard/paper-trade-heartbeat";
 import { SignOutButton } from "@/components/dashboard/sign-out-button";
+import { MobileNav } from "@/components/dashboard/mobile-nav";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: Home },
@@ -40,15 +41,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col">
-        <header className="flex items-center justify-end gap-4 border-b bg-background px-6 py-4">
-          <SignOutButton />
-          <Avatar className="h-8 w-8">
-            <AvatarFallback>SW</AvatarFallback>
-          </Avatar>
+        <header className="flex items-center justify-between gap-4 border-b bg-background px-4 py-4 md:justify-end md:px-6">
+          <Link href="/" className="flex items-center gap-2 md:hidden">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background">
+              <Zap className="h-3.5 w-3.5 fill-current" />
+            </span>
+            <span className="text-base font-semibold">TradeBuddy</span>
+          </Link>
+          <div className="flex items-center gap-4">
+            <SignOutButton />
+            <Avatar className="h-8 w-8">
+              <AvatarFallback>SW</AvatarFallback>
+            </Avatar>
+          </div>
         </header>
 
-        <main className="flex-1 p-6">{children}</main>
+        <main className="flex-1 p-4 pb-20 md:p-6 md:pb-6">{children}</main>
       </div>
+
+      <MobileNav />
     </div>
   );
 }
