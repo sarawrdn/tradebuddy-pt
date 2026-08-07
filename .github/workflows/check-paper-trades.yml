@@ -1,0 +1,17 @@
+name: Check paper trades
+
+on:
+  schedule:
+    # Every 15 minutes, 24/7 — bypasses Vercel Hobby's once-a-day cron cap
+    # by hitting the API endpoint from outside Vercel entirely.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping check-paper-trades endpoint
+        run: |
+          curl -sf -X GET "https://tradebuddy-pt.vercel.app/api/cron/check-paper-trades" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
