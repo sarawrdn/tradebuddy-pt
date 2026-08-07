@@ -179,18 +179,18 @@ export function PaperTradesClient({
         long that takes. (Intraday is hidden while focus is on swing.)
       </p>
 
-      <div className="grid grid-cols-3 gap-4">
-        <Card className="p-4">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <Card className="p-3 sm:p-4">
           <p className="text-xs text-muted-foreground">Pending</p>
-          <p className="mt-1 text-xl font-semibold">{pendingCount}</p>
+          <p className="mt-1 text-lg font-semibold sm:text-xl">{pendingCount}</p>
         </Card>
-        <Card className="p-4">
+        <Card className="p-3 sm:p-4">
           <p className="text-xs text-muted-foreground">Open</p>
-          <p className="mt-1 text-xl font-semibold">{openCount}</p>
+          <p className="mt-1 text-lg font-semibold sm:text-xl">{openCount}</p>
         </Card>
-        <Card className="p-4">
+        <Card className="p-3 sm:p-4">
           <p className="text-xs text-muted-foreground">Closed P/L</p>
-          <p className={`mt-1 text-xl font-semibold ${closedProfit >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+          <p className={`mt-1 text-lg font-semibold sm:text-xl ${closedProfit >= 0 ? "text-emerald-600" : "text-red-500"}`}>
             {closedProfit >= 0 ? "+" : ""}${closedProfit.toFixed(2)}
           </p>
         </Card>

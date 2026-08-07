@@ -12,9 +12,9 @@ export default async function HomePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <h1 className="text-2xl font-semibold">TradeBuddy</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <Card className="px-4 py-3">
             <p className="text-xs text-muted-foreground">Today&apos;s Paper P/L ({closedCount} closed)</p>
             <p className={`text-lg font-semibold ${profit >= 0 ? "text-emerald-600" : "text-red-500"}`}>
