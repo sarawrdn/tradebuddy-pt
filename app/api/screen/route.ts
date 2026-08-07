@@ -21,6 +21,50 @@ interface ScanResult {
   recommendation: Awaited<ReturnType<typeof runDecisionAgent>> & { id: string };
 }
 
+// Twelve Data's free tier is rate-limited per minute — firing every stock's
+// history fetch at once causes 429s (retried once internally, but still
+// slower/less reliable than just not colliding in the first place). Batching
+// keeps concurrent Twelve Data calls low without serializing DeepSeek calls
+// unnecessarily.
+const BATCH_SIZE = 5;
+const BATCH_GAP_MS = 3_000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function scanOne(
+  stock: Awaited<ReturnType<typeof getShariahUniverse>>[number],
+  tradingStyle: "INTRADAY" | "SWING"
+): Promise<ScanResult> {
+  const decision = await runDecisionAgent(stock.symbol, tradingStyle);
+
+  const saved = await prisma.aIRecommendation.create({
+    data: {
+      stockId: stock.id,
+      tradingStyle,
+      recommendation: decision.recommendation,
+      confidence: decision.confidence,
+      entryPrice: decision.entryPrice,
+      stopLoss: decision.stopLoss,
+      takeProfit: decision.takeProfit,
+      holdingPeriod: decision.holdingPeriod,
+      investmentThesis: decision.investmentThesis,
+      riskLevel: decision.riskLevel,
+      supportingReasons: decision.supportingReasons,
+      technicalSignal: decision.technicalSignal,
+      technicalReasoning: decision.technicalReasoning,
+    },
+  });
+
+  return {
+    symbol: stock.symbol,
+    company: stock.company,
+    shariahStatus: stock.shariahStatus,
+    recommendation: { ...decision, id: saved.id },
+  };
+}
+
 export async function GET() {
   const universe = await getShariahUniverse();
   const settings = await getSettings();
@@ -35,36 +79,13 @@ export async function GET() {
     .filter(({ price }) => price < MAX_SCAN_PRICE)
     .map(({ stock }) => stock);
 
-  const results = await Promise.allSettled(
-    underPriceCeiling.map(async (stock): Promise<ScanResult> => {
-      const decision = await runDecisionAgent(stock.symbol, settings.tradingStyle);
-
-      const saved = await prisma.aIRecommendation.create({
-        data: {
-          stockId: stock.id,
-          tradingStyle: settings.tradingStyle,
-          recommendation: decision.recommendation,
-          confidence: decision.confidence,
-          entryPrice: decision.entryPrice,
-          stopLoss: decision.stopLoss,
-          takeProfit: decision.takeProfit,
-          holdingPeriod: decision.holdingPeriod,
-          investmentThesis: decision.investmentThesis,
-          riskLevel: decision.riskLevel,
-          supportingReasons: decision.supportingReasons,
-          technicalSignal: decision.technicalSignal,
-          technicalReasoning: decision.technicalReasoning,
-        },
-      });
-
-      return {
-        symbol: stock.symbol,
-        company: stock.company,
-        shariahStatus: stock.shariahStatus,
-        recommendation: { ...decision, id: saved.id },
-      };
-    })
-  );
+  const results: PromiseSettledResult<ScanResult>[] = [];
+  for (let i = 0; i < underPriceCeiling.length; i += BATCH_SIZE) {
+    const batch = underPriceCeiling.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.allSettled(batch.map((stock) => scanOne(stock, settings.tradingStyle)));
+    results.push(...batchResults);
+    if (i + BATCH_SIZE < underPriceCeiling.length) await sleep(BATCH_GAP_MS);
+  }
 
   const scanned = results
     .filter((r): r is PromiseFulfilledResult<ScanResult> => r.status === "fulfilled")
