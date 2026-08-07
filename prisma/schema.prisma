@@ -225,8 +225,9 @@ model AIRecommendation {
 
   // Deterministic rule-based signal (RSI/SMA/trend, no AI) — a sanity-check
   // baseline alongside `recommendation` above, which comes from DeepSeek.
-  technicalSignal    Recommendation?
-  technicalReasoning Json?
+  technicalSignal        Recommendation?
+  technicalReasoning     Json?
+  technicalHoldingPeriod String?
 
   userDecision      UserDecision @default(PENDING)
   resultAfter1Day   Decimal?     @db.Decimal(9, 4)

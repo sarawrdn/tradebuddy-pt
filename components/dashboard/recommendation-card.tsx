@@ -100,6 +100,11 @@ export function RecommendationCard({
             <Badge className={REC_STYLES[recommendation.technicalSignal]} variant="secondary">
               {recommendation.technicalSignal}
             </Badge>
+            {recommendation.technicalHoldingPeriod && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Est. hold: {recommendation.technicalHoldingPeriod}
+              </p>
+            )}
           </div>
           {recommendation.technicalSignal !== recommendation.recommendation && (
             <p className="col-span-2 text-xs text-amber-700">
@@ -130,7 +135,7 @@ export function RecommendationCard({
           <p className="text-sm font-medium">${recommendation.takeProfit?.toFixed(2)}</p>
         </div>
         <div>
-          <p className="text-xs text-muted-foreground">Holding Period</p>
+          <p className="text-xs text-muted-foreground">Holding Period (AI)</p>
           <p className="text-sm font-medium">{recommendation.holdingPeriod}</p>
         </div>
       </div>

@@ -226,3 +226,38 @@ export function deriveTechnicalSignal(tech: TechnicalSummary): TechnicalSignalRe
   reasoning.push("Mixed or flat signals — no clear directional edge from RSI/SMA/trend alone.");
   return { signal: "WATCH", reasoning };
 }
+
+/**
+ * Deterministic holding-period estimate: how many trading days, at this
+ * stock's own recent volatility (ATR), would it plausibly take to cover the
+ * target distance. Assumes price makes net directional progress equal to
+ * ~40% of its ATR per day when trending in your favor — a rough, stated
+ * assumption, not a guarantee. Intraday is capped at "within today's
+ * session" framing since it can't literally span multiple days.
+ */
+export function estimateHoldingPeriod(
+  atrPct: number | null,
+  targetPct: number,
+  style: "INTRADAY" | "SWING"
+): string | null {
+  if (atrPct === null || atrPct <= 0) return null;
+
+  const dailyProgressPct = atrPct * 0.4;
+  const estimatedDays = targetPct / dailyProgressPct;
+
+  if (style === "INTRADAY") {
+    // Reframe as a fraction of a single session's typical range instead of
+    // multiple days, since intraday trades don't span days.
+    const sessionFraction = targetPct / atrPct;
+    if (sessionFraction < 0.3) return "30-90 minutes";
+    if (sessionFraction < 0.7) return "1-3 hours";
+    if (sessionFraction < 1.2) return "3-6 hours (most of the session)";
+    return "unlikely to complete within one session at this stock's typical daily range";
+  }
+
+  if (estimatedDays <= 5) return "3-5 trading days";
+  if (estimatedDays <= 10) return "1-2 weeks";
+  if (estimatedDays <= 20) return "2-4 weeks";
+  if (estimatedDays <= 60) return "1-3 months";
+  return "3+ months (slow relative to this stock's typical volatility)";
+}

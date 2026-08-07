@@ -42,4 +42,11 @@ export interface DecisionOutput {
    */
   technicalSignal?: "BUY" | "WATCH" | "SELL";
   technicalReasoning?: string[];
+  /**
+   * Deterministic estimate of how long it'd plausibly take to reach the
+   * target, based on this stock's own recent volatility (ATR) vs. the
+   * target distance — not the AI's guess, pure math with a stated
+   * assumption. See lib/indicators/estimateHoldingPeriod.
+   */
+  technicalHoldingPeriod?: string;
 }

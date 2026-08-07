@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
         supportingReasons: decision.supportingReasons,
         technicalSignal: decision.technicalSignal,
         technicalReasoning: decision.technicalReasoning,
+        technicalHoldingPeriod: decision.technicalHoldingPeriod,
       },
     });
 

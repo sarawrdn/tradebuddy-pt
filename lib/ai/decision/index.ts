@@ -1,7 +1,7 @@
 import { getDeepSeekClient } from "@/lib/ai/deepseek";
 import { getQuote } from "@/lib/market";
 import { getDailyHistory } from "@/lib/market-history";
-import { summarizeTechnicals, deriveTechnicalSignal } from "@/lib/indicators";
+import { summarizeTechnicals, deriveTechnicalSignal, estimateHoldingPeriod } from "@/lib/indicators";
 import type { DecisionOutput } from "@/lib/ai/types";
 
 export type TradingStyle = "INTRADAY" | "SWING";
@@ -66,10 +66,13 @@ ${STYLE_LABEL[style]}
 
   let technicalSection = "No historical price data available — reason from the live quote alone.";
   let technicalSignalResult: { signal: "BUY" | "WATCH" | "SELL"; reasoning: string[] } | null = null;
+  let technicalHoldingPeriod: string | null = null;
   try {
     const history = await getDailyHistory(symbol);
     if (history.length >= 6) {
       const tech = summarizeTechnicals(history);
+      const targetPctForStyle = ((bounds.targetMin + bounds.targetMax) / 2) * 100;
+      technicalHoldingPeriod = estimateHoldingPeriod(tech.atrPct, targetPctForStyle, style);
       technicalSection = `20-day SMA: ${tech.sma20?.toFixed(2) ?? "n/a"}
 14-day RSI: ${tech.rsi14?.toFixed(1) ?? "n/a"} (below 30 = oversold, above 70 = overbought)
 Price vs 20-day SMA: ${tech.priceVsSma20Pct !== null ? tech.priceVsSma20Pct.toFixed(2) + "%" : "n/a"}
@@ -126,6 +129,9 @@ available; say so in the thesis if that would materially change the call.`;
   if (technicalSignalResult) {
     decision.technicalSignal = technicalSignalResult.signal;
     decision.technicalReasoning = technicalSignalResult.reasoning;
+  }
+  if (technicalHoldingPeriod) {
+    decision.technicalHoldingPeriod = technicalHoldingPeriod;
   }
 
   return decision;

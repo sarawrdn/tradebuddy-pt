@@ -40,6 +40,7 @@ export async function getLatestRecommendations() {
       supportingReasons: (r.supportingReasons as string[]) ?? [],
       technicalSignal: (r.technicalSignal as "BUY" | "WATCH" | "SELL" | null) ?? undefined,
       technicalReasoning: (r.technicalReasoning as string[] | null) ?? undefined,
+      technicalHoldingPeriod: r.technicalHoldingPeriod ?? undefined,
     },
   });
 
