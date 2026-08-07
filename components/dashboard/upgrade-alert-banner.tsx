@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { TrendingUp, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
@@ -10,16 +10,8 @@ interface Upgrade {
   upgradedAt: string;
 }
 
-export function UpgradeAlertBanner() {
-  const [upgrades, setUpgrades] = useState<Upgrade[]>([]);
+export function UpgradeAlertBanner({ upgrades }: { upgrades: Upgrade[] }) {
   const [dismissed, setDismissed] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/recommendations/upgrades")
-      .then((res) => res.json())
-      .then((data) => setUpgrades(data.upgrades ?? []))
-      .catch(() => {});
-  }, []);
 
   if (dismissed || upgrades.length === 0) return null;
 

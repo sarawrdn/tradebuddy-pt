@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
+import { forwardRef, useImperativeHandle, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { RecommendationCard, type Recommendation } from "@/components/dashboard/recommendation-card";
 import { safeJson } from "@/lib/utils";
@@ -39,27 +39,21 @@ function Section({ title, items }: { title: string; items: HistoryItem[] }) {
   );
 }
 
-export const RecommendationHistory = forwardRef<RecommendationHistoryHandle>((_, ref) => {
-  const [intraday, setIntraday] = useState<HistoryItem[]>([]);
-  const [swing, setSwing] = useState<HistoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+export const RecommendationHistory = forwardRef<
+  RecommendationHistoryHandle,
+  { initialIntraday: HistoryItem[]; initialSwing: HistoryItem[] }
+>(({ initialIntraday, initialSwing }, ref) => {
+  const [intraday, setIntraday] = useState<HistoryItem[]>(initialIntraday);
+  const [swing, setSwing] = useState<HistoryItem[]>(initialSwing);
 
   async function load() {
-    setLoading(true);
     const res = await fetch("/api/recommendations");
     const data = await safeJson(res);
     setIntraday(data.intraday ?? []);
     setSwing(data.swing ?? []);
-    setLoading(false);
   }
 
-  useEffect(() => {
-    load();
-  }, []);
-
   useImperativeHandle(ref, () => ({ refresh: load }));
-
-  if (loading) return null;
 
   return (
     <div className="flex flex-col gap-8">

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateStock } from "@/lib/shariah";
-import { checkAndFillOrders } from "@/lib/paper-trading";
+import { getPaperTrades } from "@/lib/paper-trading";
 
 // Fetches a live quote per distinct open-order symbol, which scales with
 // how many paper trades are pending/open — guard against the default 10s
@@ -15,13 +15,7 @@ export const maxDuration = 30;
 const MIN_APPROVE_CONFIDENCE = 60;
 
 export async function GET() {
-  await checkAndFillOrders();
-
-  const paperTrades = await prisma.paperTrade.findMany({
-    include: { stock: true },
-    orderBy: { createdAt: "desc" },
-  });
-
+  const paperTrades = await getPaperTrades();
   return NextResponse.json({ paperTrades });
 }
 

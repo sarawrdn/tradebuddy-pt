@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -11,16 +11,9 @@ const OPTIONS: { value: TradingStyle; label: string; hint: string }[] = [
   { value: "SWING", label: "Swing", hint: "1-3 month holds" },
 ];
 
-export function TradingStyleToggle() {
-  const [style, setStyle] = useState<TradingStyle | null>(null);
+export function TradingStyleToggle({ initialStyle }: { initialStyle: TradingStyle }) {
+  const [style, setStyle] = useState<TradingStyle>(initialStyle);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/settings")
-      .then((res) => res.json())
-      .then((data) => setStyle(data.settings?.tradingStyle ?? "INTRADAY"))
-      .catch(() => setStyle("INTRADAY"));
-  }, []);
 
   async function update(value: TradingStyle) {
     setStyle(value);
@@ -44,7 +37,7 @@ export function TradingStyleToggle() {
           <button
             key={opt.value}
             onClick={() => update(opt.value)}
-            disabled={saving || style === null}
+            disabled={saving}
             title={opt.hint}
             className={cn(
               "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
@@ -57,11 +50,7 @@ export function TradingStyleToggle() {
           </button>
         ))}
       </div>
-      {style && (
-        <span className="text-xs text-muted-foreground">
-          {OPTIONS.find((o) => o.value === style)?.hint}
-        </span>
-      )}
+      <span className="text-xs text-muted-foreground">{OPTIONS.find((o) => o.value === style)?.hint}</span>
     </Card>
   );
 }
