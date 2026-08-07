@@ -1,11 +1,14 @@
 import { getDeepSeekClient } from "@/lib/ai/deepseek";
 import { getQuote } from "@/lib/market";
+import { getDailyHistory } from "@/lib/market-history";
+import { summarizeTechnicals } from "@/lib/indicators";
 import type { DecisionOutput } from "@/lib/ai/types";
 
 export type TradingStyle = "INTRADAY" | "SWING";
 
 const BASE_PROMPT = `You are the Decision Agent for a Shariah-compliant US stock investment assistant.
-Given live quote data for a single stock, produce a BUY, HOLD, SELL, or WATCH recommendation.
+Given live quote data and recent technical indicators for a single stock, produce a BUY, HOLD, SELL,
+or WATCH recommendation.
 
 Rules:
 - Never recommend leverage, options, or short selling.
@@ -61,6 +64,21 @@ export async function runDecisionAgent(
 ${STYLE_LABEL[style]}
 - Current price is ${price}. If recommending BUY or WATCH, stopLoss MUST be between ${stopFloor} and ${stopCeil}, and takeProfit MUST be between ${targetFloor} and ${targetCeil}. These bounds are fixed for this trading style — do not go outside them even if you think the stock deserves a wider or tighter range; that's a signal to change the recommendation or confidence instead, not the bounds.`;
 
+  let technicalSection = "No historical price data available — reason from the live quote alone.";
+  try {
+    const history = await getDailyHistory(symbol);
+    if (history.length >= 6) {
+      const tech = summarizeTechnicals(history);
+      technicalSection = `20-day SMA: ${tech.sma20?.toFixed(2) ?? "n/a"}
+14-day RSI: ${tech.rsi14?.toFixed(1) ?? "n/a"} (below 30 = oversold, above 70 = overbought)
+Price vs 20-day SMA: ${tech.priceVsSma20Pct !== null ? tech.priceVsSma20Pct.toFixed(2) + "%" : "n/a"}
+5-day price change: ${tech.fiveDayChangePct !== null ? tech.fiveDayChangePct.toFixed(2) + "%" : "n/a"}
+5-day trend: ${tech.trend}`;
+    }
+  } catch {
+    // Twelve Data unavailable/rate-limited — fall back to quote-only reasoning.
+  }
+
   const userPrompt = `Symbol: ${symbol}
 Current price: ${quote.price}
 Day change: ${quote.change} (${quote.changePercent}%)
@@ -70,7 +88,12 @@ Day low: ${quote.low}
 Previous close: ${quote.previousClose}
 As of: ${quote.asOf.toISOString()}
 
-Only live intraday quote data is available (no historical candles or fundamentals yet). Reason conservatively from this alone and say so in the thesis if relevant.`;
+Technical indicators (last 20-30 trading days):
+${technicalSection}
+
+Use the technical indicators above as real evidence for your confidence level — a clear trend with
+supporting RSI is legitimate grounds for higher confidence than quote data alone. Still no fundamentals
+or news are available; say so in the thesis if that would materially change the call.`;
 
   const completion = await client.chat.completions.create({
     model: "deepseek-chat",

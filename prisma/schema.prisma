@@ -36,9 +36,34 @@ model ShariahStock {
   trades          Trade[]
   recommendations AIRecommendation[]
   paperTrades     PaperTrade[]
+  priceHistory    PriceHistory[]
 
   @@index([shariahStatus])
   @@index([sector])
+}
+
+// ---------------------------------------------------------------------------
+// Price History — daily OHLCV cache from Twelve Data, used to compute real
+// technical indicators (RSI, EMA, trend) instead of reasoning from a single
+// live quote. Fetched once per day per stock and cached here to stay well
+// under Twelve Data's free-tier rate limit.
+// ---------------------------------------------------------------------------
+
+model PriceHistory {
+  id      String       @id @default(cuid())
+  stockId String
+  stock   ShariahStock @relation(fields: [stockId], references: [id])
+  date    DateTime     @db.Date
+  open    Decimal      @db.Decimal(20, 6)
+  high    Decimal      @db.Decimal(20, 6)
+  low     Decimal      @db.Decimal(20, 6)
+  close   Decimal      @db.Decimal(20, 6)
+  volume  BigInt?
+
+  createdAt DateTime @default(now())
+
+  @@unique([stockId, date])
+  @@index([stockId])
 }
 
 // ---------------------------------------------------------------------------
