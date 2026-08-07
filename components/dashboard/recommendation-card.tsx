@@ -140,6 +140,13 @@ export function RecommendationCard({
         </div>
       </div>
 
+      {recommendation.priceLevelReasoning && recommendation.priceLevelReasoning.length > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Price levels (calculated, not AI):</span>{" "}
+          {recommendation.priceLevelReasoning.join(" ")}
+        </p>
+      )}
+
       <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
         <span>Confidence: {recommendation.confidence}%</span>
         <span>Risk: {recommendation.riskLevel}</span>

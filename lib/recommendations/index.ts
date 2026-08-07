@@ -34,6 +34,7 @@ export async function getLatestRecommendations() {
       entryPrice: r.entryPrice ? Number(r.entryPrice) : undefined,
       stopLoss: r.stopLoss ? Number(r.stopLoss) : undefined,
       takeProfit: r.takeProfit ? Number(r.takeProfit) : undefined,
+      priceLevelReasoning: (r.priceLevelReasoning as string[] | null) ?? undefined,
       holdingPeriod: r.holdingPeriod ?? undefined,
       investmentThesis: r.investmentThesis,
       riskLevel: r.riskLevel,

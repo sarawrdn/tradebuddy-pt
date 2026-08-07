@@ -1,7 +1,13 @@
 import { getDeepSeekClient } from "@/lib/ai/deepseek";
 import { getQuote } from "@/lib/market";
 import { getDailyHistory } from "@/lib/market-history";
-import { summarizeTechnicals, deriveTechnicalSignal, estimateHoldingPeriod } from "@/lib/indicators";
+import {
+  summarizeTechnicals,
+  deriveTechnicalSignal,
+  estimateHoldingPeriod,
+  calculateTradeLevels,
+  type StyleBounds,
+} from "@/lib/indicators";
 import type { DecisionOutput } from "@/lib/ai/types";
 
 export type TradingStyle = "INTRADAY" | "SWING";
@@ -14,14 +20,13 @@ Rules:
 - Never recommend leverage, options, or short selling.
 - Confidence is 0-100. Risk level is LOW, MEDIUM, or HIGH.
 - Keep the investment thesis to 2-3 sentences, explainable to a retail investor.
+- Do NOT set entry/stop-loss/take-profit prices — those are calculated separately from real
+  support/resistance/volatility, not by you. Just decide the recommendation, confidence, and reasoning.
 - Respond with ONLY a JSON object matching this TypeScript type, no markdown fences, no extra text:
 
 {
   "recommendation": "BUY" | "HOLD" | "SELL" | "WATCH",
   "confidence": number,
-  "entryPrice": number,
-  "stopLoss": number,
-  "takeProfit": number,
   "holdingPeriod": string,
   "investmentThesis": string,
   "riskLevel": "LOW" | "MEDIUM" | "HIGH",
@@ -31,7 +36,10 @@ Rules:
 // Bounds as a fraction of current price. Tight enough to avoid swing-width
 // targets under an "intraday" label, loose enough to survive normal
 // intraday noise plus polling-interval slippage before hitting a wall.
-const STYLE_BOUNDS: Record<TradingStyle, { stopMin: number; stopMax: number; targetMin: number; targetMax: number }> = {
+// Also the hard clamp for calculateTradeLevels below — the AI never sets
+// these, but the range itself is still the safety net regardless of what
+// support/resistance/ATR calculate to.
+const STYLE_BOUNDS: Record<TradingStyle, StyleBounds> = {
   INTRADAY: { stopMin: 0.004, stopMax: 0.015, targetMin: 0.006, targetMax: 0.025 },
   SWING: { stopMin: 0.03, stopMax: 0.1, targetMin: 0.05, targetMax: 0.2 },
 };
@@ -54,19 +62,16 @@ export async function runDecisionAgent(
 
   const bounds = STYLE_BOUNDS[style];
   const price = quote.price;
-  const stopFloor = (price * (1 - bounds.stopMax)).toFixed(2);
-  const stopCeil = (price * (1 - bounds.stopMin)).toFixed(2);
-  const targetFloor = (price * (1 + bounds.targetMin)).toFixed(2);
-  const targetCeil = (price * (1 + bounds.targetMax)).toFixed(2);
 
   const systemPrompt = `${BASE_PROMPT}
 
 ${STYLE_LABEL[style]}
-- Current price is ${price}. If recommending BUY or WATCH, stopLoss MUST be between ${stopFloor} and ${stopCeil}, and takeProfit MUST be between ${targetFloor} and ${targetCeil}. These bounds are fixed for this trading style — do not go outside them even if you think the stock deserves a wider or tighter range; that's a signal to change the recommendation or confidence instead, not the bounds.`;
+- Current price is ${price}.`;
 
   let technicalSection = "No historical price data available — reason from the live quote alone.";
   let technicalSignalResult: { signal: "BUY" | "WATCH" | "SELL"; reasoning: string[] } | null = null;
   let technicalHoldingPeriod: string | null = null;
+  let tradeLevels: { entryPrice: number; stopLoss: number; takeProfit: number; reasoning: string[] } | null = null;
   try {
     const history = await getDailyHistory(symbol);
     if (history.length >= 6) {
@@ -84,9 +89,23 @@ Volume vs 20-day average: ${tech.volumeRatio !== null ? tech.volumeRatio.toFixed
 20-day low: ${tech.low20?.toFixed(2) ?? "n/a"} (price is ${tech.distanceFromLow20Pct !== null ? tech.distanceFromLow20Pct.toFixed(1) + "%" : "n/a"} from it — near 0% means at support)
 ATR (14-day, volatility): ${tech.atrPct !== null ? tech.atrPct.toFixed(2) + "% of price" : "n/a"} — use this to judge whether your stop/target bounds are realistic for how much this stock actually moves`;
       technicalSignalResult = deriveTechnicalSignal(tech);
+      tradeLevels = calculateTradeLevels(price, tech, style, bounds);
     }
   } catch {
     // Twelve Data unavailable/rate-limited — fall back to quote-only reasoning.
+  }
+
+  if (!tradeLevels) {
+    // No history available — still give a deterministic, bound-based level
+    // (midpoint of the allowed range) instead of leaving it to the AI.
+    const midStopPct = (bounds.stopMin + bounds.stopMax) / 2;
+    const midTargetPct = (bounds.targetMin + bounds.targetMax) / 2;
+    tradeLevels = {
+      entryPrice: Number(price.toFixed(2)),
+      stopLoss: Number((price * (1 - midStopPct)).toFixed(2)),
+      takeProfit: Number((price * (1 + midTargetPct)).toFixed(2)),
+      reasoning: ["No price history available — stop/target set at the midpoint of the allowed range."],
+    };
   }
 
   const userPrompt = `Symbol: ${symbol}
@@ -125,6 +144,14 @@ available; say so in the thesis if that would materially change the call.`;
   if (!raw) throw new Error("DeepSeek returned no content");
 
   const decision = JSON.parse(raw) as DecisionOutput;
+
+  // Entry/stop/target are always overridden with the calculated levels,
+  // regardless of whether the AI included its own (it's instructed not to,
+  // but this is the actual enforcement — never trust the AI's numbers here).
+  decision.entryPrice = tradeLevels.entryPrice;
+  decision.stopLoss = tradeLevels.stopLoss;
+  decision.takeProfit = tradeLevels.takeProfit;
+  decision.priceLevelReasoning = tradeLevels.reasoning;
 
   if (technicalSignalResult) {
     decision.technicalSignal = technicalSignalResult.signal;

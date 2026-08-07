@@ -28,9 +28,17 @@ export type FinalRecommendation = "BUY" | "HOLD" | "SELL" | "WATCH";
 export interface DecisionOutput {
   recommendation: FinalRecommendation;
   confidence: number;
+  /**
+   * Entry/stop/target are NOT AI-chosen — they're calculated deterministically
+   * from real support/resistance/ATR by lib/indicators/calculateTradeLevels,
+   * then clamped to the trading style's fixed % bounds. The AI has zero
+   * discretion over these numbers; see priceLevelReasoning for how each was
+   * derived.
+   */
   entryPrice?: number;
   stopLoss?: number;
   takeProfit?: number;
+  priceLevelReasoning?: string[];
   holdingPeriod?: string;
   investmentThesis: string;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";

@@ -48,6 +48,7 @@ async function scanOne(
       entryPrice: decision.entryPrice,
       stopLoss: decision.stopLoss,
       takeProfit: decision.takeProfit,
+      priceLevelReasoning: decision.priceLevelReasoning,
       holdingPeriod: decision.holdingPeriod,
       investmentThesis: decision.investmentThesis,
       riskLevel: decision.riskLevel,

@@ -204,20 +204,24 @@ enum UserDecision {
 }
 
 model AIRecommendation {
-  id                String         @id @default(cuid())
-  stockId           String
-  stock             ShariahStock   @relation(fields: [stockId], references: [id])
-  date              DateTime       @default(now())
-  tradingStyle      TradingStyle   @default(INTRADAY)
-  recommendation    Recommendation
-  confidence        Decimal        @db.Decimal(5, 2)
-  entryPrice        Decimal?       @db.Decimal(20, 6)
-  stopLoss          Decimal?       @db.Decimal(20, 6)
-  takeProfit        Decimal?       @db.Decimal(20, 6)
-  holdingPeriod     String?
-  investmentThesis  String
-  riskLevel         RiskLevel
-  supportingReasons Json
+  id                  String         @id @default(cuid())
+  stockId             String
+  stock               ShariahStock   @relation(fields: [stockId], references: [id])
+  date                DateTime       @default(now())
+  tradingStyle        TradingStyle   @default(INTRADAY)
+  recommendation      Recommendation
+  confidence          Decimal        @db.Decimal(5, 2)
+  entryPrice          Decimal?       @db.Decimal(20, 6)
+  stopLoss            Decimal?       @db.Decimal(20, 6)
+  takeProfit          Decimal?       @db.Decimal(20, 6)
+  // How entryPrice/stopLoss/takeProfit above were calculated — always
+  // code-derived from support/resistance/ATR, never AI discretion. See
+  // lib/indicators/calculateTradeLevels.
+  priceLevelReasoning Json?
+  holdingPeriod       String?
+  investmentThesis    String
+  riskLevel           RiskLevel
+  supportingReasons   Json
 
   technicalScore   Decimal? @db.Decimal(5, 2)
   fundamentalScore Decimal? @db.Decimal(5, 2)

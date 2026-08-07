@@ -261,3 +261,84 @@ export function estimateHoldingPeriod(
   if (estimatedDays <= 60) return "1-3 months";
   return "3+ months (slow relative to this stock's typical volatility)";
 }
+
+export interface StyleBounds {
+  stopMin: number;
+  stopMax: number;
+  targetMin: number;
+  targetMax: number;
+}
+
+export interface TradeLevels {
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  reasoning: string[];
+}
+
+/**
+ * Calculates entry/stop-loss/take-profit deterministically from real
+ * technical levels — no AI discretion over the exact price. Entry is
+ * always the current live price. Stop-loss prefers the 20-day low
+ * (support) if it falls within the style's allowed % range; otherwise
+ * falls back to an ATR-based volatility stop. Take-profit prefers the
+ * 20-day high (resistance) if in range; otherwise a 2:1 reward:risk
+ * target from the stop distance. Both are always clamped to the style's
+ * bounds either way, so the range itself is still the hard safety net.
+ */
+export function calculateTradeLevels(
+  currentPrice: number,
+  tech: TechnicalSummary,
+  style: "INTRADAY" | "SWING",
+  bounds: StyleBounds
+): TradeLevels {
+  const reasoning: string[] = [];
+  const entryPrice = currentPrice;
+
+  const clampPct = (pct: number, min: number, max: number) => Math.min(Math.max(pct, min), max);
+
+  // Stop-loss
+  let stopLoss: number;
+  const supportDistancePct = tech.low20 !== null ? (currentPrice - tech.low20) / currentPrice : null;
+  if (tech.low20 !== null && supportDistancePct !== null && supportDistancePct >= bounds.stopMin && supportDistancePct <= bounds.stopMax) {
+    stopLoss = tech.low20;
+    reasoning.push(
+      `Stop-loss set at the 20-day low ($${tech.low20.toFixed(2)}) — real support, and it falls within the allowed ${(bounds.stopMin * 100).toFixed(1)}-${(bounds.stopMax * 100).toFixed(1)}% range for ${style.toLowerCase()}.`
+    );
+  } else if (tech.atr14 !== null) {
+    const atrMultiplier = style === "INTRADAY" ? 1.0 : 1.5;
+    const rawPct = clampPct((tech.atr14 * atrMultiplier) / currentPrice, bounds.stopMin, bounds.stopMax);
+    stopLoss = currentPrice * (1 - rawPct);
+    reasoning.push(
+      `Stop-loss set ${(rawPct * 100).toFixed(1)}% below price using ${atrMultiplier}x ATR volatility (20-day low was outside the allowed range).`
+    );
+  } else {
+    const midPct = (bounds.stopMin + bounds.stopMax) / 2;
+    stopLoss = currentPrice * (1 - midPct);
+    reasoning.push(`Stop-loss set at the midpoint of the allowed range — not enough history for a support- or volatility-based level.`);
+  }
+
+  // Take-profit
+  let takeProfit: number;
+  const resistanceDistancePct = tech.high20 !== null ? (tech.high20 - currentPrice) / currentPrice : null;
+  if (tech.high20 !== null && resistanceDistancePct !== null && resistanceDistancePct >= bounds.targetMin && resistanceDistancePct <= bounds.targetMax) {
+    takeProfit = tech.high20;
+    reasoning.push(
+      `Take-profit set at the 20-day high ($${tech.high20.toFixed(2)}) — real resistance, within the allowed range.`
+    );
+  } else {
+    const riskDistance = currentPrice - stopLoss;
+    const rawPct = clampPct((riskDistance * 2) / currentPrice, bounds.targetMin, bounds.targetMax);
+    takeProfit = currentPrice * (1 + rawPct);
+    reasoning.push(
+      `Take-profit set at a 2:1 reward-to-risk ratio from the stop-loss distance (20-day high was outside the allowed range).`
+    );
+  }
+
+  return {
+    entryPrice: Number(entryPrice.toFixed(2)),
+    stopLoss: Number(stopLoss.toFixed(2)),
+    takeProfit: Number(takeProfit.toFixed(2)),
+    reasoning,
+  };
+}
