@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import type { DecisionOutput } from "@/lib/ai/types";
 import { safeJson } from "@/lib/utils";
+import { calculateRiskReward, calculateTradeQualityStars } from "@/lib/trade-quality";
 
 const REC_STYLES: Record<string, string> = {
   BUY: "bg-emerald-100 text-emerald-700",
@@ -45,6 +46,21 @@ export function RecommendationCard({
   const qtyNumber = Number(quantity);
   const totalCost =
     recommendation.entryPrice && !Number.isNaN(qtyNumber) ? recommendation.entryPrice * qtyNumber : null;
+
+  const riskReward = calculateRiskReward(
+    recommendation.entryPrice,
+    recommendation.stopLoss,
+    recommendation.takeProfit
+  );
+  const qualityStars = calculateTradeQualityStars(
+    recommendation.confidence,
+    recommendation.probabilityOfProfit,
+    riskReward
+  );
+  const isOptimizedPlan = recommendation.priceLevelReasoning?.[0]?.includes("backtested-optimal plan") ?? false;
+  const reasonText = isOptimizedPlan
+    ? "Historically, similar market conditions produced the best risk-adjusted returns using this trade plan."
+    : recommendation.supportingReasons?.[0];
 
   async function approve() {
     setApproving(true);
@@ -87,6 +103,70 @@ export function RecommendationCard({
         </Badge>
       </div>
 
+      {recommendation.entryPrice !== undefined && (
+        <div className="mb-4 rounded-xl border bg-muted/30 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground">Trade Quality</p>
+              <p className="text-base leading-none" aria-label={`${qualityStars} out of 5 stars`}>
+                {"★".repeat(qualityStars)}
+                <span className="text-muted-foreground">{"☆".repeat(5 - qualityStars)}</span>
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">Confidence</p>
+              <p className="text-lg font-semibold">{recommendation.confidence}%</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div>
+              <p className="text-xs text-muted-foreground">Suggested Entry</p>
+              <p className="text-sm font-medium">${recommendation.entryPrice.toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Suggested Stop Loss</p>
+              <p className="text-sm font-medium">${recommendation.stopLoss?.toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Suggested Take Profit</p>
+              <p className="text-sm font-medium">${recommendation.takeProfit?.toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Risk : Reward</p>
+              <p className="text-sm font-medium">{riskReward !== null ? `1 : ${riskReward.toFixed(1)}` : "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Expected Return</p>
+              <p className="text-sm font-medium">
+                {recommendation.expectedReturnPct !== undefined
+                  ? `${recommendation.expectedReturnPct >= 0 ? "+" : ""}${recommendation.expectedReturnPct.toFixed(1)}%`
+                  : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Probability of Profit</p>
+              <p className="text-sm font-medium">
+                {recommendation.probabilityOfProfit !== undefined
+                  ? `${recommendation.probabilityOfProfit.toFixed(0)}%`
+                  : "—"}
+              </p>
+            </div>
+            <div className="col-span-2 sm:col-span-3">
+              <p className="text-xs text-muted-foreground">Expected Holding</p>
+              <p className="text-sm font-medium">{recommendation.holdingPeriod ?? "—"}</p>
+            </div>
+          </div>
+
+          {reasonText && (
+            <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Reason: </span>
+              {reasonText}
+            </p>
+          )}
+        </div>
+      )}
+
       {recommendation.technicalSignal && (
         <div className="mb-4 grid grid-cols-2 gap-3">
           <div className="rounded-xl border p-3">
@@ -121,52 +201,11 @@ export function RecommendationCard({
 
       <p className="text-sm text-muted-foreground">{recommendation.investmentThesis}</p>
 
-      <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <div>
-          <p className="text-xs text-muted-foreground">Entry Price</p>
-          <p className="text-sm font-medium">${recommendation.entryPrice?.toFixed(2)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Stop Loss</p>
-          <p className="text-sm font-medium">${recommendation.stopLoss?.toFixed(2)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Take Profit</p>
-          <p className="text-sm font-medium">${recommendation.takeProfit?.toFixed(2)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Holding Period (AI)</p>
-          <p className="text-sm font-medium">{recommendation.holdingPeriod}</p>
-        </div>
-      </div>
-
-      {recommendation.probabilityOfProfit !== undefined && (
-        <div className="mt-4 grid grid-cols-3 gap-4 rounded-xl border p-3">
-          <div>
-            <p className="text-xs text-muted-foreground">Probability of Profit</p>
-            <p className="text-sm font-medium">{recommendation.probabilityOfProfit.toFixed(0)}%</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Expected Return</p>
-            <p className="text-sm font-medium">
-              {recommendation.expectedReturnPct !== undefined
-                ? `${recommendation.expectedReturnPct >= 0 ? "+" : ""}${recommendation.expectedReturnPct.toFixed(1)}%`
-                : "—"}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Expected Drawdown</p>
-            <p className="text-sm font-medium">
-              {recommendation.expectedDrawdownPct !== undefined
-                ? `${recommendation.expectedDrawdownPct.toFixed(1)}%`
-                : "—"}
-            </p>
-          </div>
-          <p className="col-span-3 text-xs text-muted-foreground">
-            AI estimate from the expanded indicator set — not a statistically fitted model, treat as
-            context alongside confidence, not a guarantee.
-          </p>
-        </div>
+      {recommendation.expectedDrawdownPct !== undefined && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Expected drawdown: {recommendation.expectedDrawdownPct.toFixed(1)}% — AI estimate, not a
+          statistically fitted model, treat as context alongside confidence, not a guarantee.
+        </p>
       )}
 
       {recommendation.priceLevelReasoning && recommendation.priceLevelReasoning.length > 0 && (
@@ -176,8 +215,7 @@ export function RecommendationCard({
         </p>
       )}
 
-      <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
-        <span>Confidence: {recommendation.confidence}%</span>
+      <div className="mt-4 text-xs text-muted-foreground">
         <span>Risk: {recommendation.riskLevel}</span>
       </div>
 
