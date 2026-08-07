@@ -92,6 +92,103 @@ export function atr(candles: OHLCV[], period = 14): number | null {
   return sma(trueRanges, period);
 }
 
+/** Last value of an EMA series, or null if there isn't enough history for
+ * the EMA to have meaningfully converged (requires at least `period`
+ * points — fewer than that and the seed value dominates the result). */
+function emaLast(values: number[], period: number): number | null {
+  if (values.length < period) return null;
+  return ema(values, period).at(-1) ?? null;
+}
+
+export interface BollingerBands {
+  upper: number;
+  middle: number;
+  lower: number;
+  /** Where price sits within the bands: 0 = at lower band, 1 = at upper band,
+   * can go outside [0,1] when price pierces a band. */
+  percentB: number;
+}
+
+export function bollingerBands(values: number[], period = 20, stdDevMult = 2): BollingerBands | null {
+  if (values.length < period) return null;
+  const slice = values.slice(-period);
+  const middle = slice.reduce((sum, v) => sum + v, 0) / period;
+  const variance = slice.reduce((sum, v) => sum + (v - middle) ** 2, 0) / period;
+  const stdDev = Math.sqrt(variance);
+  const upper = middle + stdDevMult * stdDev;
+  const lower = middle - stdDevMult * stdDev;
+  const price = values[values.length - 1];
+  const percentB = upper === lower ? 0.5 : (price - lower) / (upper - lower);
+  return { upper, middle, lower, percentB };
+}
+
+/**
+ * Stochastic RSI: applies the stochastic %K formula to RSI values instead of
+ * price, making it more sensitive to momentum shifts than plain RSI. Needs a
+ * sliding window of RSI values, so it requires rsiPeriod + stochPeriod points.
+ */
+export function stochasticRsi(values: number[], rsiPeriod = 14, stochPeriod = 14): number | null {
+  const rsiSeries: number[] = [];
+  for (let end = rsiPeriod + 1; end <= values.length; end++) {
+    const r = rsi(values.slice(0, end), rsiPeriod);
+    if (r !== null) rsiSeries.push(r);
+  }
+  if (rsiSeries.length < stochPeriod) return null;
+
+  const window = rsiSeries.slice(-stochPeriod);
+  const minRsi = Math.min(...window);
+  const maxRsi = Math.max(...window);
+  const lastRsi = window[window.length - 1];
+  if (maxRsi === minRsi) return 50;
+  return ((lastRsi - minRsi) / (maxRsi - minRsi)) * 100;
+}
+
+/** On-balance volume: cumulative running total that adds volume on up days
+ * and subtracts it on down days — a running gauge of buying vs selling
+ * pressure. Trend is read from OBV's own 5-day change, not price. */
+export function onBalanceVolume(candles: OHLCV[]): { value: number; trend: "UP" | "DOWN" | "FLAT" } | null {
+  if (candles.length < 2) return null;
+  let obv = 0;
+  const series: number[] = [0];
+  for (let i = 1; i < candles.length; i++) {
+    const volume = candles[i].volume ?? 0;
+    if (candles[i].close > candles[i - 1].close) obv += volume;
+    else if (candles[i].close < candles[i - 1].close) obv -= volume;
+    series.push(obv);
+  }
+  const fiveAgo = series[series.length - 6] ?? series[0];
+  const change = obv - fiveAgo;
+  const trend: "UP" | "DOWN" | "FLAT" = change > 0 ? "UP" : change < 0 ? "DOWN" : "FLAT";
+  return { value: obv, trend };
+}
+
+/** Volume-weighted average price over a rolling window, using each day's
+ * typical price (H+L+C)/3 — a daily-bar approximation of intraday VWAP,
+ * since true VWAP needs tick-level data we don't have. Read as "is price
+ * trading above or below where volume has actually been transacting". */
+export function rollingVwap(candles: OHLCV[], period = 20): number | null {
+  const slice = candles.slice(-period);
+  if (slice.length < period) return null;
+  let sumPV = 0;
+  let sumV = 0;
+  for (const c of slice) {
+    const typicalPrice = (c.high + c.low + c.close) / 3;
+    const volume = c.volume ?? 0;
+    sumPV += typicalPrice * volume;
+    sumV += volume;
+  }
+  if (sumV === 0) return null;
+  return sumPV / sumV;
+}
+
+/** Rate of change: % price change over `period` days. */
+export function rateOfChange(values: number[], period = 10): number | null {
+  const past = values[values.length - 1 - period];
+  const current = values[values.length - 1];
+  if (past === undefined || current === undefined || past === 0) return null;
+  return ((current - past) / past) * 100;
+}
+
 export interface TechnicalSummary {
   sma20: number | null;
   rsi14: number | null;
@@ -106,6 +203,18 @@ export interface TechnicalSummary {
   distanceFromLow20Pct: number | null;
   atr14: number | null;
   atrPct: number | null; // ATR as a % of price — volatility relative to the stock's own scale
+  // Extended feature set — needs longer history (up to 200 candles for
+  // ema200) than the base indicators above, only populated when enough
+  // candles are passed in (see getExtendedHistory).
+  ema10: number | null;
+  ema50: number | null;
+  ema100: number | null;
+  ema200: number | null;
+  bollinger: BollingerBands | null;
+  stochRsi: number | null;
+  obv: { value: number; trend: "UP" | "DOWN" | "FLAT" } | null;
+  vwap20: number | null;
+  roc10: number | null;
 }
 
 export function summarizeTechnicals(candles: OHLCV[]): TechnicalSummary {
@@ -143,6 +252,16 @@ export function summarizeTechnicals(candles: OHLCV[]): TechnicalSummary {
   const atr14 = atr(candles, 14);
   const atrPct = atr14 && currentPrice ? (atr14 / currentPrice) * 100 : null;
 
+  const ema10 = emaLast(closes, 10);
+  const ema50 = emaLast(closes, 50);
+  const ema100 = emaLast(closes, 100);
+  const ema200 = emaLast(closes, 200);
+  const bollinger = bollingerBands(closes, 20);
+  const stochRsi = stochasticRsi(closes);
+  const obv = onBalanceVolume(candles);
+  const vwap20 = rollingVwap(candles, 20);
+  const roc10 = rateOfChange(closes, 10);
+
   return {
     sma20,
     rsi14,
@@ -157,6 +276,15 @@ export function summarizeTechnicals(candles: OHLCV[]): TechnicalSummary {
     distanceFromLow20Pct,
     atr14,
     atrPct,
+    ema10,
+    ema50,
+    ema100,
+    ema200,
+    bollinger,
+    stochRsi,
+    obv,
+    vwap20,
+    roc10,
   };
 }
 
@@ -269,6 +397,18 @@ export interface StyleBounds {
   targetMax: number;
 }
 
+// Bounds as a fraction of current price. Tight enough to avoid swing-width
+// targets under an "intraday" label, loose enough to survive normal
+// intraday noise plus polling-interval slippage before hitting a wall.
+// This is the hard clamp for calculateTradeLevels below — the AI never
+// sets these, the range itself is the safety net regardless of what
+// support/resistance/ATR calculate to. Shared between the live Decision
+// Agent and the backtester so both use identical rules.
+export const STYLE_BOUNDS: Record<"INTRADAY" | "SWING", StyleBounds> = {
+  INTRADAY: { stopMin: 0.004, stopMax: 0.015, targetMin: 0.006, targetMax: 0.025 },
+  SWING: { stopMin: 0.03, stopMax: 0.1, targetMin: 0.05, targetMax: 0.2 },
+};
+
 export interface TradeLevels {
   entryPrice: number;
   stopLoss: number;
@@ -320,18 +460,29 @@ export function calculateTradeLevels(
 
   // Take-profit
   let takeProfit: number;
+  const riskDistance = currentPrice - stopLoss;
+  const MIN_REWARD_RISK = 1.5;
   const resistanceDistancePct = tech.high20 !== null ? (tech.high20 - currentPrice) / currentPrice : null;
-  if (tech.high20 !== null && resistanceDistancePct !== null && resistanceDistancePct >= bounds.targetMin && resistanceDistancePct <= bounds.targetMax) {
+  const resistanceRewardRisk = tech.high20 !== null && riskDistance > 0 ? (tech.high20 - currentPrice) / riskDistance : null;
+  if (
+    tech.high20 !== null &&
+    resistanceDistancePct !== null &&
+    resistanceDistancePct >= bounds.targetMin &&
+    resistanceDistancePct <= bounds.targetMax &&
+    resistanceRewardRisk !== null &&
+    resistanceRewardRisk >= MIN_REWARD_RISK
+  ) {
     takeProfit = tech.high20;
     reasoning.push(
-      `Take-profit set at the 20-day high ($${tech.high20.toFixed(2)}) — real resistance, within the allowed range.`
+      `Take-profit set at the 20-day high ($${tech.high20.toFixed(2)}) — real resistance, within the allowed range, and still at least a ${MIN_REWARD_RISK}:1 reward-to-risk ratio.`
     );
   } else {
-    const riskDistance = currentPrice - stopLoss;
     const rawPct = clampPct((riskDistance * 2) / currentPrice, bounds.targetMin, bounds.targetMax);
     takeProfit = currentPrice * (1 + rawPct);
     reasoning.push(
-      `Take-profit set at a 2:1 reward-to-risk ratio from the stop-loss distance (20-day high was outside the allowed range).`
+      tech.high20 !== null && resistanceRewardRisk !== null && resistanceRewardRisk < MIN_REWARD_RISK
+        ? `Take-profit set at a 2:1 reward-to-risk ratio from the stop-loss distance — the 20-day high was too close (only ${resistanceRewardRisk.toFixed(1)}:1), not worth the risk taken.`
+        : `Take-profit set at a 2:1 reward-to-risk ratio from the stop-loss distance (20-day high was outside the allowed range).`
     );
   }
 

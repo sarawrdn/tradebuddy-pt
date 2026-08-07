@@ -42,6 +42,9 @@ export async function getLatestRecommendations() {
       technicalSignal: (r.technicalSignal as "BUY" | "WATCH" | "SELL" | null) ?? undefined,
       technicalReasoning: (r.technicalReasoning as string[] | null) ?? undefined,
       technicalHoldingPeriod: r.technicalHoldingPeriod ?? undefined,
+      probabilityOfProfit: r.probabilityOfProfit ? Number(r.probabilityOfProfit) : undefined,
+      expectedReturnPct: r.expectedReturnPct ? Number(r.expectedReturnPct) : undefined,
+      expectedDrawdownPct: r.expectedDrawdownPct ? Number(r.expectedDrawdownPct) : undefined,
     },
   });
 

@@ -31,6 +31,14 @@ model ShariahStock {
   lastUpdated   DateTime      @updatedAt
   createdAt     DateTime      @default(now())
 
+  // Most recent backtest of the deterministic Data Signal against this
+  // stock's own history — used to gate live BUY signals so we stop trading
+  // setups that already proved to be net losers (see lib/backtest).
+  backtestAvgReturnPct Decimal?  @db.Decimal(10, 4)
+  backtestWinRate      Decimal?  @db.Decimal(6, 2)
+  backtestSignals      Int?
+  backtestUpdatedAt    DateTime?
+
   watchlistItems  WatchlistItem[]
   holdings        Holding[]
   trades          Trade[]
@@ -233,6 +241,13 @@ model AIRecommendation {
   technicalReasoning     Json?
   technicalHoldingPeriod String?
 
+  // AI-estimated probability/return/drawdown from the expanded indicator
+  // set (EMA10-200, Bollinger, Stochastic RSI, OBV, VWAP, ROC) — an LLM
+  // estimate, not a statistically fitted model. See DecisionOutput.
+  probabilityOfProfit Decimal? @db.Decimal(5, 2)
+  expectedReturnPct   Decimal? @db.Decimal(6, 2)
+  expectedDrawdownPct Decimal? @db.Decimal(6, 2)
+
   userDecision      UserDecision @default(PENDING)
   resultAfter1Day   Decimal?     @db.Decimal(9, 4)
   resultAfter7Days  Decimal?     @db.Decimal(9, 4)
@@ -261,6 +276,45 @@ model AppSettings {
   tradingStyle TradingStyle @default(INTRADAY)
   cashBalance  Decimal      @default(0) @db.Decimal(20, 2)
   updatedAt    DateTime     @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Trade Plan Optimization
+//
+// A grid search over stop-loss/take-profit % combinations, backtested against
+// pooled historical signals within a volatility bucket (stocks grouped by
+// ATR%, not optimized individually — too few signals per stock to avoid
+// curve-fitting to one stock's specific history). The winning combination per
+// bucket becomes the deterministic price-level source for stocks in that
+// bucket, in place of the fixed support/resistance/ATR rule in
+// calculateTradeLevels. See lib/optimize.
+// ---------------------------------------------------------------------------
+
+enum VolatilityBucket {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model OptimizedTradePlan {
+  id               String           @id @default(cuid())
+  volatilityBucket VolatilityBucket
+  tradingStyle     TradingStyle     @default(SWING)
+  stopPct          Decimal          @db.Decimal(6, 4)
+  targetPct        Decimal          @db.Decimal(6, 4)
+  winRate          Decimal?         @db.Decimal(6, 2)
+  avgReturnPct     Decimal?         @db.Decimal(6, 2)
+  avgHoldingDays   Decimal?         @db.Decimal(6, 2)
+  signalCount      Int
+  filledCount      Int
+  // Highest current ATR% among stocks placed in this bucket at the last
+  // optimizer run — used to classify a stock into LOW/MEDIUM/HIGH going
+  // forward without re-deriving live terciles on every request. See
+  // lib/optimize/getVolatilityBucket.
+  atrPctMax        Decimal?         @db.Decimal(6, 2)
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([volatilityBucket, tradingStyle])
 }
 
 // ---------------------------------------------------------------------------

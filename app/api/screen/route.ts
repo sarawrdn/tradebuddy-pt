@@ -56,6 +56,9 @@ async function scanOne(
       technicalSignal: decision.technicalSignal,
       technicalReasoning: decision.technicalReasoning,
       technicalHoldingPeriod: decision.technicalHoldingPeriod,
+      probabilityOfProfit: decision.probabilityOfProfit,
+      expectedReturnPct: decision.expectedReturnPct,
+      expectedDrawdownPct: decision.expectedDrawdownPct,
     },
   });
 

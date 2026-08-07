@@ -140,6 +140,35 @@ export function RecommendationCard({
         </div>
       </div>
 
+      {recommendation.probabilityOfProfit !== undefined && (
+        <div className="mt-4 grid grid-cols-3 gap-4 rounded-xl border p-3">
+          <div>
+            <p className="text-xs text-muted-foreground">Probability of Profit</p>
+            <p className="text-sm font-medium">{recommendation.probabilityOfProfit.toFixed(0)}%</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Expected Return</p>
+            <p className="text-sm font-medium">
+              {recommendation.expectedReturnPct !== undefined
+                ? `${recommendation.expectedReturnPct >= 0 ? "+" : ""}${recommendation.expectedReturnPct.toFixed(1)}%`
+                : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Expected Drawdown</p>
+            <p className="text-sm font-medium">
+              {recommendation.expectedDrawdownPct !== undefined
+                ? `${recommendation.expectedDrawdownPct.toFixed(1)}%`
+                : "—"}
+            </p>
+          </div>
+          <p className="col-span-3 text-xs text-muted-foreground">
+            AI estimate from the expanded indicator set — not a statistically fitted model, treat as
+            context alongside confidence, not a guarantee.
+          </p>
+        </div>
+      )}
+
       {recommendation.priceLevelReasoning && recommendation.priceLevelReasoning.length > 0 && (
         <p className="mt-2 text-xs text-muted-foreground">
           <span className="font-medium text-foreground">Price levels (calculated, not AI):</span>{" "}

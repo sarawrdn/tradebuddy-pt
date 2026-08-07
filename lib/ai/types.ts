@@ -29,6 +29,17 @@ export interface DecisionOutput {
   recommendation: FinalRecommendation;
   confidence: number;
   /**
+   * AI-estimated probability (0-100) that a BUY here hits a reasonable
+   * profit target before a reasonable stop, reasoned from the expanded
+   * indicator set (EMA10-200, Bollinger, Stochastic RSI, OBV, VWAP, ROC).
+   * Distinct from `confidence`, which is conviction in the call itself.
+   * Still an LLM estimate, not a statistically fitted probability — a real
+   * trained model isn't feasible at our data scale (~250 days x 18 stocks).
+   */
+  probabilityOfProfit?: number;
+  expectedReturnPct?: number;
+  expectedDrawdownPct?: number;
+  /**
    * Entry/stop/target are NOT AI-chosen — they're calculated deterministically
    * from real support/resistance/ATR by lib/indicators/calculateTradeLevels,
    * then clamped to the trading style's fixed % bounds. The AI has zero

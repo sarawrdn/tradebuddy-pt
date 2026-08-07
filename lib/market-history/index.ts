@@ -23,9 +23,9 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchDailyHistory(symbol: string, retried = false): Promise<Candle[]> {
+async function fetchDailyHistory(symbol: string, outputsize: number = HISTORY_DAYS, retried = false): Promise<Candle[]> {
   const res = await fetch(
-    `${TWELVE_DATA_API}/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=${HISTORY_DAYS}&apikey=${apiKey()}`
+    `${TWELVE_DATA_API}/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=${outputsize}&apikey=${apiKey()}`
   );
 
   if (res.status === 429 && !retried) {
@@ -33,7 +33,7 @@ async function fetchDailyHistory(symbol: string, retried = false): Promise<Candl
     // rather than immediately failing when a scan fires many requests close
     // together.
     await sleep(8_000);
-    return fetchDailyHistory(symbol, true);
+    return fetchDailyHistory(symbol, outputsize, true);
   }
 
   if (!res.ok) {
@@ -105,18 +105,72 @@ export async function getDailyHistory(symbol: string): Promise<Candle[]> {
 
   const rows = await prisma.priceHistory.findMany({
     where: { stockId: stock.id },
-    orderBy: { date: "asc" },
+    orderBy: { date: "desc" },
     take: HISTORY_DAYS,
   });
 
-  return rows.map((r) => ({
-    date: r.date,
-    open: Number(r.open),
-    high: Number(r.high),
-    low: Number(r.low),
-    close: Number(r.close),
-    volume: r.volume ? Number(r.volume) : null,
-  }));
+  return rows
+    .reverse()
+    .map((r) => ({
+      date: r.date,
+      open: Number(r.open),
+      high: Number(r.high),
+      low: Number(r.low),
+      close: Number(r.close),
+      volume: r.volume ? Number(r.volume) : null,
+    }));
+}
+
+/**
+ * Fetches a longer window than the live 45-day cache — used for
+ * backtesting, which needs enough history to both compute indicators AND
+ * walk forward through many past "decision days". Shares the same
+ * PriceHistory cache/upsert as getDailyHistory, so running a backtest also
+ * warms the regular cache as a side effect. Only re-fetches from Twelve
+ * Data if we don't already have at least `days` cached candles for this
+ * symbol — a backtest window doesn't need "fetched today" freshness the
+ * way live indicators do, since it's historical by definition.
+ */
+export async function getExtendedHistory(symbol: string, days: number): Promise<Candle[]> {
+  const stock = await getOrCreateStock(symbol);
+
+  const cachedCount = await prisma.priceHistory.count({ where: { stockId: stock.id } });
+
+  if (cachedCount < days) {
+    const candles = await fetchDailyHistory(symbol, days);
+    for (const c of candles) {
+      await prisma.priceHistory.upsert({
+        where: { stockId_date: { stockId: stock.id, date: c.date } },
+        update: { open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume },
+        create: {
+          stockId: stock.id,
+          date: c.date,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume,
+        },
+      });
+    }
+  }
+
+  const rows = await prisma.priceHistory.findMany({
+    where: { stockId: stock.id },
+    orderBy: { date: "desc" },
+    take: days,
+  });
+
+  return rows
+    .reverse()
+    .map((r) => ({
+      date: r.date,
+      open: Number(r.open),
+      high: Number(r.high),
+      low: Number(r.low),
+      close: Number(r.close),
+      volume: r.volume ? Number(r.volume) : null,
+    }));
 }
 
 /**

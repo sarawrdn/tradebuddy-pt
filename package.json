@@ -9,7 +9,9 @@
     "lint": "eslint",
     "postinstall": "prisma generate",
     "seed:shariah": "node --env-file=.env --import tsx scripts/import-shariah/index.ts",
-    "warm:history": "node --env-file=.env --import tsx scripts/warm-price-history/index.ts"
+    "warm:history": "node --env-file=.env --import tsx scripts/warm-price-history/index.ts",
+    "backtest:universe": "node --env-file=.env --import tsx scripts/backtest-universe/index.ts",
+    "optimize:trade-plans": "node --env-file=.env --import tsx scripts/optimize-trade-plans/index.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",
