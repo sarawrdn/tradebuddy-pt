@@ -8,14 +8,6 @@ import { prisma } from "../../lib/prisma";
  * UNDER_REVIEW; treat as a research shortlist, not a compliance ruling,
  * until backed by a real screening service (e.g. Zoya, Musaffa,
  * IdealRatings).
- *
- * Note: 14 stocks from an earlier version of this list (AAPL, MSFT, NVDA,
- * GOOGL, META, AVGO, ADBE, CRM, COST, PG, JNJ, LLY, HD, TSLA) are no longer
- * listed here since they're all now priced well above $120 — but they
- * remain in the database and are NOT deleted, because they have real
- * AIRecommendation/PaperTrade history attached (Postgres foreign keys
- * block removing them). They're simply skipped by the screener's live
- * price filter now instead of being re-proposed here.
  */
 const STARTER_LIST = [
   { symbol: "NKE", company: "Nike Inc", sector: "Consumer Cyclical", industry: "Footwear & Accessories" },
