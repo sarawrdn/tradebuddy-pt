@@ -15,7 +15,11 @@ export const maxDuration = 30;
 const MIN_APPROVE_CONFIDENCE = 60;
 
 export async function GET() {
-  const paperTrades = await getPaperTrades();
+  const rawTrades = await getPaperTrades();
+  const paperTrades = rawTrades.map((t) => ({
+    ...t,
+    tradingStyle: t.recommendation?.tradingStyle ?? "INTRADAY",
+  }));
   return NextResponse.json({ paperTrades });
 }
 

@@ -25,6 +25,7 @@ interface PaperTrade {
   filledExitPrice: string | null;
   exitReason: string | null;
   realizedProfit: string | null;
+  tradingStyle: string;
   stock: { symbol: string };
 }
 
@@ -39,12 +40,93 @@ const STATUS_STYLES: Record<string, string> = {
 
 interface SymbolStat {
   symbol: string;
+  tradingStyle: string;
   trades: number;
   wins: number;
   losses: number;
   totalProfit: number;
   winRate: number;
   avgProfit: number;
+}
+
+function OrdersTable({
+  title,
+  orders,
+  onCancel,
+}: {
+  title: string;
+  orders: PaperTrade[];
+  onCancel: (id: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <h3 className="text-sm font-semibold text-muted-foreground">{title}</h3>
+      <Card className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Symbol</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Quantity</TableHead>
+              <TableHead className="text-right">Entry</TableHead>
+              <TableHead className="text-right">Stop Loss</TableHead>
+              <TableHead className="text-right">Take Profit</TableHead>
+              <TableHead className="text-right">Filled Entry</TableHead>
+              <TableHead className="text-right">Exit</TableHead>
+              <TableHead className="text-right">P/L</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {orders.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={10} className="text-center text-sm text-muted-foreground">
+                  No {title.toLowerCase()} paper trades yet.
+                </TableCell>
+              </TableRow>
+            )}
+            {orders.map((o) => {
+              const pl = o.realizedProfit ? Number(o.realizedProfit) : null;
+              return (
+                <TableRow key={o.id}>
+                  <TableCell className="font-medium">{o.stock.symbol}</TableCell>
+                  <TableCell>
+                    <Badge className={STATUS_STYLES[o.status]} variant="secondary">
+                      {o.status.replace("_", " ")}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">{o.quantity}</TableCell>
+                  <TableCell className="text-right">${Number(o.entryPrice).toFixed(2)}</TableCell>
+                  <TableCell className="text-right">
+                    {o.stopLoss ? `$${Number(o.stopLoss).toFixed(2)}` : "—"}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {o.takeProfit ? `$${Number(o.takeProfit).toFixed(2)}` : "—"}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {o.filledEntryPrice ? `$${Number(o.filledEntryPrice).toFixed(2)}` : "—"}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {o.filledExitPrice ? `$${Number(o.filledExitPrice).toFixed(2)}` : "—"}
+                  </TableCell>
+                  <TableCell className={`text-right ${pl === null ? "text-muted-foreground" : pl >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                    {pl === null ? "—" : `${pl >= 0 ? "+" : ""}$${pl.toFixed(2)}`}
+                  </TableCell>
+                  <TableCell>
+                    {o.status === "PENDING" && (
+                      <Button variant="ghost" size="sm" onClick={() => onCancel(o.id)}>
+                        Cancel
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
+  );
 }
 
 export function PaperTradesClient({
@@ -85,11 +167,16 @@ export function PaperTradesClient({
   const openCount = orders.filter((o) => o.status === "OPEN").length;
   const pendingCount = orders.filter((o) => o.status === "PENDING").length;
 
+  const intradayOrders = orders.filter((o) => o.tradingStyle === "INTRADAY");
+  const swingOrders = orders.filter((o) => o.tradingStyle === "SWING");
+
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold">Paper Trades</h1>
       <p className="text-sm text-muted-foreground">
         Simulated orders from approved AI recommendations. No real money involved — used to test the bot&apos;s accuracy.
+        Intraday positions force-close after 8 hours open; swing positions are held until they hit their
+        stop loss or take profit, however long that takes.
       </p>
 
       <div className="grid grid-cols-3 gap-4">
@@ -122,6 +209,7 @@ export function PaperTradesClient({
             <TableHeader>
               <TableRow>
                 <TableHead>Symbol</TableHead>
+                <TableHead>Style</TableHead>
                 <TableHead className="text-right">Trades</TableHead>
                 <TableHead className="text-right">Wins</TableHead>
                 <TableHead className="text-right">Losses</TableHead>
@@ -133,14 +221,17 @@ export function PaperTradesClient({
             <TableBody>
               {stats.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
                     No closed trades yet.
                   </TableCell>
                 </TableRow>
               )}
               {stats.map((s) => (
-                <TableRow key={s.symbol}>
+                <TableRow key={`${s.symbol}-${s.tradingStyle}`}>
                   <TableCell className="font-medium">{s.symbol}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {s.tradingStyle === "INTRADAY" ? "Intraday" : "Swing"}
+                  </TableCell>
                   <TableCell className="text-right">{s.trades}</TableCell>
                   <TableCell className="text-right text-emerald-600">{s.wins}</TableCell>
                   <TableCell className="text-right text-red-500">{s.losses}</TableCell>
@@ -158,70 +249,8 @@ export function PaperTradesClient({
         </Card>
       </div>
 
-      <Card className="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Symbol</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Quantity</TableHead>
-              <TableHead className="text-right">Entry</TableHead>
-              <TableHead className="text-right">Stop Loss</TableHead>
-              <TableHead className="text-right">Take Profit</TableHead>
-              <TableHead className="text-right">Filled Entry</TableHead>
-              <TableHead className="text-right">Exit</TableHead>
-              <TableHead className="text-right">P/L</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {orders.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={10} className="text-center text-sm text-muted-foreground">
-                  No paper trades yet — approve a recommendation on the Analysis page.
-                </TableCell>
-              </TableRow>
-            )}
-            {orders.map((o) => {
-              const pl = o.realizedProfit ? Number(o.realizedProfit) : null;
-              return (
-                <TableRow key={o.id}>
-                  <TableCell className="font-medium">{o.stock.symbol}</TableCell>
-                  <TableCell>
-                    <Badge className={STATUS_STYLES[o.status]} variant="secondary">
-                      {o.status.replace("_", " ")}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">{o.quantity}</TableCell>
-                  <TableCell className="text-right">${Number(o.entryPrice).toFixed(2)}</TableCell>
-                  <TableCell className="text-right">
-                    {o.stopLoss ? `$${Number(o.stopLoss).toFixed(2)}` : "—"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {o.takeProfit ? `$${Number(o.takeProfit).toFixed(2)}` : "—"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {o.filledEntryPrice ? `$${Number(o.filledEntryPrice).toFixed(2)}` : "—"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {o.filledExitPrice ? `$${Number(o.filledExitPrice).toFixed(2)}` : "—"}
-                  </TableCell>
-                  <TableCell className={`text-right ${pl === null ? "text-muted-foreground" : pl >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                    {pl === null ? "—" : `${pl >= 0 ? "+" : ""}$${pl.toFixed(2)}`}
-                  </TableCell>
-                  <TableCell>
-                    {o.status === "PENDING" && (
-                      <Button variant="ghost" size="sm" onClick={() => cancel(o.id)}>
-                        Cancel
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </Card>
+      <OrdersTable title="Intraday" orders={intradayOrders} onCancel={cancel} />
+      <OrdersTable title="Swing" orders={swingOrders} onCancel={cancel} />
     </div>
   );
 }

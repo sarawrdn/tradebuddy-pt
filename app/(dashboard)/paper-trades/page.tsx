@@ -20,6 +20,7 @@ export default async function PaperTradesPage() {
     filledExitPrice: o.filledExitPrice?.toString() ?? null,
     exitReason: o.exitReason,
     realizedProfit: o.realizedProfit?.toString() ?? null,
+    tradingStyle: o.recommendation?.tradingStyle ?? "INTRADAY",
     stock: { symbol: o.stock.symbol },
   }));
 

@@ -79,7 +79,7 @@ export async function checkAndFillOrders() {
 export async function getPaperTrades() {
   await checkAndFillOrders();
   return prisma.paperTrade.findMany({
-    include: { stock: true },
+    include: { stock: true, recommendation: true },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -87,22 +87,24 @@ export async function getPaperTrades() {
 export async function getPaperTradeStats() {
   const trades = await prisma.paperTrade.findMany({
     where: { status: { in: ["CLOSED_WIN", "CLOSED_LOSS"] } },
-    include: { stock: true },
+    include: { stock: true, recommendation: true },
   });
 
   const bySymbol = new Map<
     string,
-    { symbol: string; trades: number; wins: number; losses: number; totalProfit: number }
+    { symbol: string; tradingStyle: string; trades: number; wins: number; losses: number; totalProfit: number }
   >();
 
   for (const t of trades) {
-    const symbol = t.stock.symbol;
-    const entry = bySymbol.get(symbol) ?? { symbol, trades: 0, wins: 0, losses: 0, totalProfit: 0 };
+    const style = t.recommendation?.tradingStyle ?? "INTRADAY";
+    const key = `${t.stock.symbol}:${style}`;
+    const entry =
+      bySymbol.get(key) ?? { symbol: t.stock.symbol, tradingStyle: style, trades: 0, wins: 0, losses: 0, totalProfit: 0 };
     entry.trades += 1;
     if (t.status === "CLOSED_WIN") entry.wins += 1;
     else entry.losses += 1;
     entry.totalProfit += Number(t.realizedProfit ?? 0);
-    bySymbol.set(symbol, entry);
+    bySymbol.set(key, entry);
   }
 
   return Array.from(bySymbol.values())
