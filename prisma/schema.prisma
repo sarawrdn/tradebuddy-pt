@@ -223,6 +223,7 @@ enum TradingStyle {
 model AppSettings {
   id           String       @id @default(cuid())
   tradingStyle TradingStyle @default(INTRADAY)
+  cashBalance  Decimal      @default(0) @db.Decimal(20, 2)
   updatedAt    DateTime     @updatedAt
 }
 

@@ -2,22 +2,27 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getTodaysRealizedPL } from "@/lib/paper-trading";
+import { getSettings } from "@/lib/settings";
+import { CashReserveCard } from "@/components/dashboard/cash-reserve-card";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const { profit, closedCount } = await getTodaysRealizedPL();
+  const [{ profit, closedCount }, settings] = await Promise.all([getTodaysRealizedPL(), getSettings()]);
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">TradeBuddy</h1>
-        <Card className="px-4 py-3">
-          <p className="text-xs text-muted-foreground">Today&apos;s Paper P/L ({closedCount} closed)</p>
-          <p className={`text-lg font-semibold ${profit >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-            {profit >= 0 ? "+" : ""}${profit.toFixed(2)}
-          </p>
-        </Card>
+        <div className="flex items-center gap-3">
+          <Card className="px-4 py-3">
+            <p className="text-xs text-muted-foreground">Today&apos;s Paper P/L ({closedCount} closed)</p>
+            <p className={`text-lg font-semibold ${profit >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+              {profit >= 0 ? "+" : ""}${profit.toFixed(2)}
+            </p>
+          </Card>
+          <CashReserveCard initialBalance={Number(settings.cashBalance)} />
+        </div>
       </div>
 
       <Card className="flex flex-col items-start gap-4 p-6">
@@ -37,7 +42,8 @@ export default async function HomePage() {
         <div>
           <p className="text-lg font-semibold">Track paper trades</p>
           <p className="text-sm text-muted-foreground">
-            See pending, open, and closed simulated trades with realized profit and loss.
+            See pending, open, and closed simulated trades with realized profit and loss. Trades
+            draw from your cash reserve when they fill, and return proceeds when they close.
           </p>
         </div>
         <Button asChild variant="outline">

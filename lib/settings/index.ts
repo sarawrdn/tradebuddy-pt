@@ -13,3 +13,20 @@ export async function setTradingStyle(tradingStyle: "INTRADAY" | "SWING") {
     data: { tradingStyle },
   });
 }
+
+export async function topUpCash(amount: number) {
+  if (amount <= 0) throw new Error("Top-up amount must be positive");
+  const settings = await getSettings();
+  return prisma.appSettings.update({
+    where: { id: settings.id },
+    data: { cashBalance: { increment: amount } },
+  });
+}
+
+export async function adjustCash(amount: number) {
+  const settings = await getSettings();
+  return prisma.appSettings.update({
+    where: { id: settings.id },
+    data: { cashBalance: { increment: amount } },
+  });
+}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateStock } from "@/lib/shariah";
 import { getPaperTrades } from "@/lib/paper-trading";
+import { getSettings } from "@/lib/settings";
 
 // Fetches a live quote per distinct open-order symbol, which scales with
 // how many paper trades are pending/open — guard against the default 10s
@@ -52,6 +53,21 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+  }
+
+  const settings = await getSettings();
+  const pendingOrders = await prisma.paperTrade.findMany({ where: { status: "PENDING" } });
+  const reserved = pendingOrders.reduce((sum, o) => sum + Number(o.entryPrice) * Number(o.quantity), 0);
+  const availableCash = Number(settings.cashBalance) - reserved;
+  const totalCost = entry * qty;
+
+  if (totalCost > availableCash) {
+    return NextResponse.json(
+      {
+        error: `Insufficient cash: this order needs $${totalCost.toFixed(2)} but only $${availableCash.toFixed(2)} is available (cash reserve minus other pending orders)`,
+      },
+      { status: 400 }
+    );
   }
 
   const stock = await getOrCreateStock(String(symbol).trim().toUpperCase());

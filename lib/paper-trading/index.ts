@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getQuote } from "@/lib/market";
+import { adjustCash } from "@/lib/settings";
 
 // Intraday positions are meant to close same-day. Without a reliable
 // always-on monitor (checks only run while a browser tab is open, or once
@@ -48,6 +49,7 @@ export async function checkAndFillOrders() {
               filledEntryPrice: price,
             },
           });
+          await adjustCash(-(price * Number(order.quantity)));
         }
         continue;
       }
@@ -150,4 +152,5 @@ async function closeOrder(
       realizedProfit,
     },
   });
+  await adjustCash(exitPrice * quantity);
 }
