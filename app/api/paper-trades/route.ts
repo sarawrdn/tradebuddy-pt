@@ -42,6 +42,12 @@ export async function POST(req: NextRequest) {
 
   if (recommendationId) {
     const recommendation = await prisma.aIRecommendation.findUnique({ where: { id: recommendationId } });
+    if (recommendation && recommendation.recommendation !== "BUY") {
+      return NextResponse.json(
+        { error: `Only BUY recommendations can be approved (this one was ${recommendation.recommendation})` },
+        { status: 400 }
+      );
+    }
     if (recommendation && Number(recommendation.confidence) < MIN_APPROVE_CONFIDENCE) {
       return NextResponse.json(
         { error: `Confidence (${recommendation.confidence}%) is below the ${MIN_APPROVE_CONFIDENCE}% threshold to approve` },

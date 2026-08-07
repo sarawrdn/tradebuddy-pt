@@ -39,7 +39,7 @@ export function RecommendationCard({
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const eligibleType = recommendation.recommendation === "BUY" || recommendation.recommendation === "WATCH";
+  const eligibleType = recommendation.recommendation === "BUY";
   const meetsConfidence = recommendation.confidence >= MIN_APPROVE_CONFIDENCE;
   const showApproveSection = eligibleType && !!recommendation.entryPrice;
   const qtyNumber = Number(quantity);
@@ -136,12 +136,6 @@ export function RecommendationCard({
             </p>
           ) : (
             <div className="flex w-full flex-col gap-2">
-              {recommendation.recommendation === "WATCH" && (
-                <p className="text-xs text-amber-700">
-                  This is a WATCH, not a BUY — the AI wasn&apos;t confident enough to call it. Approving
-                  overrides that caution.
-                </p>
-              )}
               <div className="flex items-center gap-3">
                 <label className="text-xs text-muted-foreground">Quantity</label>
                 <Input
