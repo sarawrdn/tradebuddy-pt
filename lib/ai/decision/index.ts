@@ -110,16 +110,16 @@ Price levels:
 - 20-day low: ${tech.low20?.toFixed(2) ?? "n/a"} (price is ${tech.distanceFromLow20Pct !== null ? tech.distanceFromLow20Pct.toFixed(1) + "%" : "n/a"} from it — near 0% means at support)`;
       technicalSignalResult = deriveTechnicalSignal(tech);
 
-      // Prefer the grid-search-optimized stop%/target% for this stock's
-      // volatility bucket over the fixed support/resistance rule — it's
-      // backtested against pooled historical signals, not guessed. Falls
-      // back to calculateTradeLevels if the optimizer hasn't been run yet
-      // for this style/bucket.
+      // Requires both a large enough TRAIN sample (plan selection) and a
+      // large enough held-out TEST sample (the number actually cited below)
+      // — a plan proven on paper during selection but never checked against
+      // unseen data isn't trustworthy yet.
+      const MIN_OOS_FILLED = 10;
       let optimizedPlan: Awaited<ReturnType<typeof getOptimizedPlan>> = null;
       if (tech.atrPct !== null && style === "SWING") {
         const bucket = await getVolatilityBucket(tech.atrPct, style);
         optimizedPlan = await getOptimizedPlan(bucket, style);
-        if (optimizedPlan && optimizedPlan.filledCount >= 20) {
+        if (optimizedPlan && optimizedPlan.filledCount >= 20 && (optimizedPlan.oosFilledCount ?? 0) >= MIN_OOS_FILLED) {
           const stopLoss = price * (1 - optimizedPlan.stopPct);
           const takeProfit = price * (1 + optimizedPlan.targetPct);
           tradeLevels = {
@@ -127,7 +127,7 @@ Price levels:
             stopLoss: Number(stopLoss.toFixed(2)),
             takeProfit: Number(takeProfit.toFixed(2)),
             reasoning: [
-              `Entry/stop/target from a backtested-optimal plan for this stock's volatility bucket (${bucket}): stop ${(optimizedPlan.stopPct * 100).toFixed(1)}%, target ${(optimizedPlan.targetPct * 100).toFixed(1)}% — historically ${optimizedPlan.winRate?.toFixed(0) ?? "n/a"}% win rate, ${optimizedPlan.avgReturnPct !== null && optimizedPlan.avgReturnPct >= 0 ? "+" : ""}${optimizedPlan.avgReturnPct?.toFixed(2) ?? "n/a"}% avg return across ${optimizedPlan.filledCount} historical trades.`,
+              `Entry/stop/target from a backtested-optimal plan for this stock's volatility bucket (${bucket}): stop ${(optimizedPlan.stopPct * 100).toFixed(1)}%, target ${(optimizedPlan.targetPct * 100).toFixed(1)}% — held-out (out-of-sample) test: ${optimizedPlan.oosWinRate?.toFixed(0) ?? "n/a"}% win rate, ${optimizedPlan.oosAvgReturnPct !== null && optimizedPlan.oosAvgReturnPct >= 0 ? "+" : ""}${optimizedPlan.oosAvgReturnPct?.toFixed(2) ?? "n/a"}% avg return across ${optimizedPlan.oosFilledCount} trades never used to pick this plan.`,
             ],
           };
         }
@@ -138,7 +138,13 @@ Price levels:
       }
 
       if (optimizedPlan) {
-        technicalSection += `\n\nBacktested evidence for this stock's volatility bucket (${optimizedPlan.filledCount} historical trades at the optimized stop/target): win rate ${optimizedPlan.winRate?.toFixed(0) ?? "n/a"}%, avg return ${optimizedPlan.avgReturnPct !== null && optimizedPlan.avgReturnPct >= 0 ? "+" : ""}${optimizedPlan.avgReturnPct?.toFixed(2) ?? "n/a"}%. Weigh this real historical performance when setting probabilityOfProfit — don't ignore it in favor of how the setup merely looks today.`;
+        const overfitWarning =
+          optimizedPlan.oosAvgReturnPct !== null &&
+          optimizedPlan.avgReturnPct !== null &&
+          optimizedPlan.oosAvgReturnPct < optimizedPlan.avgReturnPct * 0.5
+            ? " Note: held-out performance is notably weaker than the in-sample number this plan was selected on — treat this bucket's edge with real skepticism."
+            : "";
+        technicalSection += `\n\nBacktested evidence for this stock's volatility bucket, held-out/out-of-sample only (${optimizedPlan.oosFilledCount ?? 0} trades never used to select this plan): win rate ${optimizedPlan.oosWinRate?.toFixed(0) ?? "n/a"}%, avg return ${optimizedPlan.oosAvgReturnPct !== null && optimizedPlan.oosAvgReturnPct >= 0 ? "+" : ""}${optimizedPlan.oosAvgReturnPct?.toFixed(2) ?? "n/a"}%. Weigh this real historical performance when setting probabilityOfProfit — don't ignore it in favor of how the setup merely looks today.${overfitWarning}`;
       }
     }
   } catch {

@@ -8,6 +8,7 @@ import {
   STYLE_BOUNDS,
 } from "@/lib/indicators";
 import { loadOptimizedPlans, classifyBucketSync, type LoadedOptimizedPlans } from "@/lib/optimize";
+import { calculateRiskMetrics, type RiskMetrics } from "@/lib/metrics";
 
 export type TradingStyle = "INTRADAY" | "SWING";
 
@@ -38,6 +39,7 @@ export interface BacktestResult {
   unresolved: number;
   winRate: number | null; // wins / (wins + losses), null if none resolved
   avgReturnPct: number | null;
+  metrics: RiskMetrics;
   trades: BacktestTrade[];
 }
 
@@ -58,6 +60,11 @@ export interface BacktestResult {
  * back to the fixed support/resistance/ATR rule in calculateTradeLevels —
  * same fallback logic as the live Decision Agent, so this backtest reflects
  * what the app would actually have done.
+ *
+ * Sequential, not daily-overlapping — see the matching comment in
+ * lib/optimize/backtestPlanOnCandles. Skips past each trade's full
+ * lifecycle before considering the next signal, so one continuous trend
+ * can't get counted as many correlated "trades."
  */
 export function runBacktest(
   symbol: string,
@@ -68,13 +75,17 @@ export function runBacktest(
   const bounds = STYLE_BOUNDS[style];
   const trades: BacktestTrade[] = [];
 
-  for (let d = MIN_LOOKBACK; d < candles.length; d++) {
+  let d = MIN_LOOKBACK;
+  while (d < candles.length) {
     const history = candles.slice(0, d + 1);
     const today = history[history.length - 1];
 
     const tech = summarizeTechnicals(history);
     const { signal } = deriveTechnicalSignal(tech);
-    if (signal !== "BUY") continue;
+    if (signal !== "BUY") {
+      d++;
+      continue;
+    }
 
     let levels: { entryPrice: number; stopLoss: number; takeProfit: number };
     const optimizedPlan =
@@ -99,8 +110,9 @@ export function runBacktest(
       filled: false,
     };
 
+    const fillDeadline = Math.min(d + MAX_FILL_WAIT_DAYS, candles.length - 1);
     let filledIndex: number | null = null;
-    for (let f = d + 1; f <= Math.min(d + MAX_FILL_WAIT_DAYS, candles.length - 1); f++) {
+    for (let f = d + 1; f <= fillDeadline; f++) {
       if (candles[f].low <= levels.entryPrice) {
         filledIndex = f;
         break;
@@ -109,34 +121,42 @@ export function runBacktest(
 
     if (filledIndex === null) {
       trades.push(trade);
+      d = fillDeadline + 1;
       continue;
     }
 
     trade.filled = true;
     trade.filledDate = candles[filledIndex].date.toISOString().slice(0, 10);
 
+    const holdDeadline = Math.min(filledIndex + MAX_HOLD_DAYS, candles.length - 1);
     let outcome: "WIN" | "LOSS" | "UNRESOLVED" = "UNRESOLVED";
     let resolvedDate: string | undefined;
-    for (let r = filledIndex + 1; r <= Math.min(filledIndex + MAX_HOLD_DAYS, candles.length - 1); r++) {
+    let resolvedIndex = holdDeadline;
+    for (let r = filledIndex + 1; r <= holdDeadline; r++) {
       const c = candles[r];
       const hitStop = c.low <= levels.stopLoss;
       const hitTarget = c.high >= levels.takeProfit;
       if (hitStop && hitTarget) {
         outcome = "LOSS";
         resolvedDate = c.date.toISOString().slice(0, 10);
+        resolvedIndex = r;
         break;
       }
       if (hitStop) {
         outcome = "LOSS";
         resolvedDate = c.date.toISOString().slice(0, 10);
+        resolvedIndex = r;
         break;
       }
       if (hitTarget) {
         outcome = "WIN";
         resolvedDate = c.date.toISOString().slice(0, 10);
+        resolvedIndex = r;
         break;
       }
     }
+
+    d = resolvedIndex + 1;
 
     trade.outcome = outcome;
     trade.resolvedDate = resolvedDate;
@@ -153,6 +173,10 @@ export function runBacktest(
   const losses = filled.filter((t) => t.outcome === "LOSS");
   const unresolved = filled.filter((t) => t.outcome === "UNRESOLVED");
   const resolved = [...wins, ...losses];
+  const resolvedForMetrics = resolved.map((t) => ({
+    outcome: t.outcome as "WIN" | "LOSS",
+    returnPct: t.returnPct ?? 0,
+  }));
 
   return {
     symbol,
@@ -168,6 +192,7 @@ export function runBacktest(
       resolved.length > 0
         ? resolved.reduce((sum, t) => sum + (t.returnPct ?? 0), 0) / resolved.length
         : null,
+    metrics: calculateRiskMetrics(resolvedForMetrics),
     trades,
   };
 }

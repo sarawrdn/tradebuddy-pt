@@ -2,6 +2,7 @@ import { getExtendedHistory, type Candle } from "@/lib/market-history";
 import { getShariahUniverse } from "@/lib/shariah";
 import { prisma } from "@/lib/prisma";
 import { summarizeTechnicals, deriveTechnicalSignal, atr } from "@/lib/indicators";
+import { calculateRiskMetrics, type RiskMetrics } from "@/lib/metrics";
 
 export type TradingStyle = "INTRADAY" | "SWING";
 export type VolatilityBucket = "LOW" | "MEDIUM" | "HIGH";
@@ -16,7 +17,10 @@ interface TradePlan {
 }
 
 interface PlanTradeOutcome {
-  outcome: "WIN" | "LOSS" | "UNRESOLVED";
+  // Only WIN/LOSS ever gets pushed to the outcomes array below — an
+  // UNRESOLVED trade (never hit stop or target within MAX_HOLD_DAYS) is
+  // simply skipped, not recorded with this status.
+  outcome: "WIN" | "LOSS";
   returnPct: number;
   holdingDays: number;
 }
@@ -24,47 +28,78 @@ interface PlanTradeOutcome {
 /** Same signal-timing walk-forward as lib/backtest, but with a fixed
  * stop%/target% instead of calculateTradeLevels — used to grid-search which
  * stop/target combination actually performs best, instead of assuming the
- * support/resistance-based rule is right. */
-function backtestPlanOnCandles(candles: Candle[], plan: TradePlan): PlanTradeOutcome[] {
+ * support/resistance-based rule is right. `signalDayRange` restricts which
+ * days count as signal-eligible (for TRAIN/TEST splitting) without
+ * restricting how far forward a fill/resolution can look — that's still
+ * real future data relative to the signal day, so no leakage either way.
+ *
+ * Sequential, not daily-overlapping: once a trade is taken, no new signal
+ * is considered until that trade's outcome is fully known (filled+resolved,
+ * filled+timed-out, or never-filled+timed-out). Scanning every single day
+ * regardless of an open position would count the same underlying price move
+ * as many "separate" signals during one continuous trend — inflating the
+ * sample size with correlated, not independent, trades. This mirrors how
+ * one actually trades a single stock: one position at a time. */
+function backtestPlanOnCandles(
+  candles: Candle[],
+  plan: TradePlan,
+  signalDayRange?: [number, number]
+): PlanTradeOutcome[] {
   const outcomes: PlanTradeOutcome[] = [];
+  const rangeStart = signalDayRange ? Math.max(signalDayRange[0], MIN_LOOKBACK) : MIN_LOOKBACK;
+  const rangeEnd = signalDayRange ? Math.min(signalDayRange[1], candles.length) : candles.length;
 
-  for (let d = MIN_LOOKBACK; d < candles.length; d++) {
+  let d = rangeStart;
+  while (d < rangeEnd) {
     const history = candles.slice(0, d + 1);
     const today = history[history.length - 1];
 
     const tech = summarizeTechnicals(history);
     const { signal } = deriveTechnicalSignal(tech);
-    if (signal !== "BUY") continue;
+    if (signal !== "BUY") {
+      d++;
+      continue;
+    }
 
     const entryPrice = today.close;
     const stopLoss = entryPrice * (1 - plan.stopPct);
     const takeProfit = entryPrice * (1 + plan.targetPct);
 
+    const fillDeadline = Math.min(d + MAX_FILL_WAIT_DAYS, candles.length - 1);
     let filledIndex: number | null = null;
-    for (let f = d + 1; f <= Math.min(d + MAX_FILL_WAIT_DAYS, candles.length - 1); f++) {
+    for (let f = d + 1; f <= fillDeadline; f++) {
       if (candles[f].low <= entryPrice) {
         filledIndex = f;
         break;
       }
     }
-    if (filledIndex === null) continue;
+    if (filledIndex === null) {
+      d = fillDeadline + 1;
+      continue;
+    }
 
+    const holdDeadline = Math.min(filledIndex + MAX_HOLD_DAYS, candles.length - 1);
     let outcome: "WIN" | "LOSS" | "UNRESOLVED" = "UNRESOLVED";
     let holdingDays = 0;
-    for (let r = filledIndex + 1; r <= Math.min(filledIndex + MAX_HOLD_DAYS, candles.length - 1); r++) {
+    let resolvedIndex = holdDeadline;
+    for (let r = filledIndex + 1; r <= holdDeadline; r++) {
       const c = candles[r];
       const hitStop = c.low <= stopLoss;
       const hitTarget = c.high >= takeProfit;
       holdingDays = r - filledIndex;
       if (hitStop) {
         outcome = "LOSS";
+        resolvedIndex = r;
         break;
       }
       if (hitTarget) {
         outcome = "WIN";
+        resolvedIndex = r;
         break;
       }
     }
+
+    d = resolvedIndex + 1;
 
     if (outcome === "UNRESOLVED") continue;
     const exitPrice = outcome === "WIN" ? takeProfit : stopLoss;
@@ -101,42 +136,86 @@ function currentAtrPct(candles: Candle[]): number | null {
   return (value / price) * 100;
 }
 
+export interface SplitPerformance {
+  filledCount: number;
+  winRate: number | null;
+  avgReturnPct: number | null;
+  avgHoldingDays: number | null;
+  metrics: RiskMetrics;
+}
+
 export interface BucketOptimizationResult {
   bucket: VolatilityBucket;
   symbols: string[];
   bestPlan: TradePlan;
   signalCount: number;
-  filledCount: number;
-  winRate: number | null;
-  avgReturnPct: number | null;
-  avgHoldingDays: number | null;
+  /** Performance on the TRAIN portion — the data the plan was selected on.
+   * Will always look at least as good as reality; don't trust this alone. */
+  train: SplitPerformance;
+  /** Performance on the held-out TEST portion — days never used to pick the
+   * plan. This is the number that actually says whether the edge is real. */
+  test: SplitPerformance;
 }
 
 export interface OptimizationSummary {
   style: TradingStyle;
+  trainRatio: number;
   buckets: BucketOptimizationResult[];
 }
 
 const MIN_FILLED_FOR_VALID_PLAN = 20;
+
+function summarizeOutcomes(outcomes: PlanTradeOutcome[]): SplitPerformance {
+  if (outcomes.length === 0) {
+    return {
+      filledCount: 0,
+      winRate: null,
+      avgReturnPct: null,
+      avgHoldingDays: null,
+      metrics: calculateRiskMetrics([]),
+    };
+  }
+  const wins = outcomes.filter((o) => o.outcome === "WIN");
+  return {
+    filledCount: outcomes.length,
+    winRate: (wins.length / outcomes.length) * 100,
+    avgReturnPct: outcomes.reduce((sum, o) => sum + o.returnPct, 0) / outcomes.length,
+    avgHoldingDays: outcomes.reduce((sum, o) => sum + o.holdingDays, 0) / outcomes.length,
+    metrics: calculateRiskMetrics(outcomes),
+  };
+}
 
 /**
  * Groups the stock universe into three volatility terciles by current ATR%,
  * grid-searches stop%/target% combinations against each bucket's pooled
  * historical signals (not per-stock — too few signals per stock to avoid
  * curve-fitting), and persists the best-performing combination per bucket to
- * OptimizedTradePlan. "Best" = highest average return among plans with at
- * least MIN_FILLED_FOR_VALID_PLAN filled trades, so a plan that "won" on 2
- * lucky trades can't outrank one proven across 50.
+ * OptimizedTradePlan.
+ *
+ * Selection uses only the first `trainRatio` portion of each stock's signal
+ * days ("best" = highest average return among plans with at least
+ * MIN_FILLED_FOR_VALID_PLAN filled trades). The remaining held-out days are
+ * never used to pick the plan — they're used afterward, once, to check how
+ * that exact plan performs on data it never saw. A plan that looks great on
+ * TRAIN but falls apart on TEST is the "backtest performance vs evidence of
+ * robustness" gap: the persisted plan is still the TRAIN-selected one (best
+ * use of all history for the live system), but both splits are returned and
+ * stored so that gap is visible instead of hidden.
  */
-export async function optimizeTradePlans(style: TradingStyle = "SWING", days = 250): Promise<OptimizationSummary> {
+export async function optimizeTradePlans(
+  style: TradingStyle = "SWING",
+  days = 250,
+  trainRatio = 0.7
+): Promise<OptimizationSummary> {
   const universe = await getShariahUniverse();
 
-  const stockData: { symbol: string; candles: Candle[]; atrPct: number }[] = [];
+  const stockData: { symbol: string; candles: Candle[]; atrPct: number; trainEnd: number }[] = [];
   for (const stock of universe) {
     const candles = await getExtendedHistory(stock.symbol, days);
     const atrPct = currentAtrPct(candles);
     if (atrPct !== null && candles.length > MIN_LOOKBACK) {
-      stockData.push({ symbol: stock.symbol, candles, atrPct });
+      const trainEnd = MIN_LOOKBACK + Math.floor((candles.length - MIN_LOOKBACK) * trainRatio);
+      stockData.push({ symbol: stock.symbol, candles, atrPct, trainEnd });
     }
   }
 
@@ -155,31 +234,35 @@ export async function optimizeTradePlans(style: TradingStyle = "SWING", days = 2
     const stocksInBucket = buckets[bucket];
     if (stocksInBucket.length === 0) continue;
 
-    let best: { plan: TradePlan; outcomes: PlanTradeOutcome[] } | null = null;
+    let best: { plan: TradePlan; trainOutcomes: PlanTradeOutcome[] } | null = null;
 
     for (const plan of plans) {
-      const outcomes = stocksInBucket.flatMap((s) => backtestPlanOnCandles(s.candles, plan));
-      if (outcomes.length < MIN_FILLED_FOR_VALID_PLAN) continue;
+      const trainOutcomes = stocksInBucket.flatMap((s) =>
+        backtestPlanOnCandles(s.candles, plan, [MIN_LOOKBACK, s.trainEnd])
+      );
+      if (trainOutcomes.length < MIN_FILLED_FOR_VALID_PLAN) continue;
 
-      const avgReturn = outcomes.reduce((sum, o) => sum + o.returnPct, 0) / outcomes.length;
+      const avgReturn = trainOutcomes.reduce((sum, o) => sum + o.returnPct, 0) / trainOutcomes.length;
       const bestAvgReturn = best
-        ? best.outcomes.reduce((sum, o) => sum + o.returnPct, 0) / best.outcomes.length
+        ? best.trainOutcomes.reduce((sum, o) => sum + o.returnPct, 0) / best.trainOutcomes.length
         : -Infinity;
 
       if (avgReturn > bestAvgReturn) {
-        best = { plan, outcomes };
+        best = { plan, trainOutcomes };
       }
     }
 
     if (!best) continue;
 
-    const wins = best.outcomes.filter((o) => o.outcome === "WIN");
-    const avgReturnPct = best.outcomes.reduce((sum, o) => sum + o.returnPct, 0) / best.outcomes.length;
-    const avgHoldingDays = best.outcomes.reduce((sum, o) => sum + o.holdingDays, 0) / best.outcomes.length;
-    const winRate = (wins.length / best.outcomes.length) * 100;
+    const testOutcomes = stocksInBucket.flatMap((s) =>
+      backtestPlanOnCandles(s.candles, best!.plan, [s.trainEnd, s.candles.length])
+    );
+
+    const train = summarizeOutcomes(best.trainOutcomes);
+    const test = summarizeOutcomes(testOutcomes);
 
     // Total signal count includes ones that never filled, for context —
-    // outcomes above only counts filled+resolved trades.
+    // train/test above only count filled+resolved trades.
     const signalCount = stocksInBucket.reduce((sum, s) => {
       let count = 0;
       for (let d = MIN_LOOKBACK; d < s.candles.length; d++) {
@@ -196,10 +279,8 @@ export async function optimizeTradePlans(style: TradingStyle = "SWING", days = 2
       symbols: stocksInBucket.map((s) => s.symbol),
       bestPlan: best.plan,
       signalCount,
-      filledCount: best.outcomes.length,
-      winRate,
-      avgReturnPct,
-      avgHoldingDays,
+      train,
+      test,
     });
 
     await prisma.optimizedTradePlan.upsert({
@@ -207,35 +288,55 @@ export async function optimizeTradePlans(style: TradingStyle = "SWING", days = 2
       update: {
         stopPct: best.plan.stopPct,
         targetPct: best.plan.targetPct,
-        winRate,
-        avgReturnPct,
-        avgHoldingDays,
+        winRate: train.winRate,
+        avgReturnPct: train.avgReturnPct,
+        avgHoldingDays: train.avgHoldingDays,
         signalCount,
-        filledCount: best.outcomes.length,
+        filledCount: train.filledCount,
         atrPctMax,
+        oosWinRate: test.winRate,
+        oosAvgReturnPct: test.avgReturnPct,
+        oosFilledCount: test.filledCount,
       },
       create: {
         volatilityBucket: bucket,
         tradingStyle: style,
         stopPct: best.plan.stopPct,
         targetPct: best.plan.targetPct,
-        winRate,
-        avgReturnPct,
-        avgHoldingDays,
+        winRate: train.winRate,
+        avgReturnPct: train.avgReturnPct,
+        avgHoldingDays: train.avgHoldingDays,
         signalCount,
-        filledCount: best.outcomes.length,
+        filledCount: train.filledCount,
         atrPctMax,
+        oosWinRate: test.winRate,
+        oosAvgReturnPct: test.avgReturnPct,
+        oosFilledCount: test.filledCount,
       },
     });
   }
 
-  return { style, buckets: results };
+  return { style, trainRatio, buckets: results };
+}
+
+export interface OptimizedPlanData {
+  stopPct: number;
+  targetPct: number;
+  winRate: number | null;
+  avgReturnPct: number | null;
+  avgHoldingDays: number | null;
+  filledCount: number;
+  // Out-of-sample — see the OptimizedTradePlan schema comment. Prefer these
+  // over the train fields above when deciding whether to trust the edge.
+  oosWinRate: number | null;
+  oosAvgReturnPct: number | null;
+  oosFilledCount: number | null;
 }
 
 export interface LoadedOptimizedPlans {
   lowMax: number | null;
   mediumMax: number | null;
-  plans: Record<VolatilityBucket, Awaited<ReturnType<typeof getOptimizedPlan>>>;
+  plans: Record<VolatilityBucket, OptimizedPlanData | null>;
 }
 
 /** Fetches all three buckets' optimized plans + thresholds in one shot, for
@@ -244,7 +345,7 @@ export interface LoadedOptimizedPlans {
 export async function loadOptimizedPlans(style: TradingStyle = "SWING"): Promise<LoadedOptimizedPlans> {
   const rows = await prisma.optimizedTradePlan.findMany({ where: { tradingStyle: style } });
 
-  const byBucket = (bucket: VolatilityBucket) => {
+  const byBucket = (bucket: VolatilityBucket): OptimizedPlanData | null => {
     const row = rows.find((r) => r.volatilityBucket === bucket);
     if (!row) return null;
     return {
@@ -254,6 +355,9 @@ export async function loadOptimizedPlans(style: TradingStyle = "SWING"): Promise
       avgReturnPct: row.avgReturnPct ? Number(row.avgReturnPct) : null,
       avgHoldingDays: row.avgHoldingDays ? Number(row.avgHoldingDays) : null,
       filledCount: row.filledCount,
+      oosWinRate: row.oosWinRate ? Number(row.oosWinRate) : null,
+      oosAvgReturnPct: row.oosAvgReturnPct ? Number(row.oosAvgReturnPct) : null,
+      oosFilledCount: row.oosFilledCount,
     };
   };
 
@@ -283,7 +387,7 @@ export function classifyBucketSync(atrPct: number, loaded: LoadedOptimizedPlans)
 export async function getOptimizedPlan(
   bucket: VolatilityBucket,
   style: TradingStyle = "SWING"
-): Promise<{ stopPct: number; targetPct: number; winRate: number | null; avgReturnPct: number | null; avgHoldingDays: number | null; filledCount: number } | null> {
+): Promise<OptimizedPlanData | null> {
   const row = await prisma.optimizedTradePlan.findUnique({
     where: { volatilityBucket_tradingStyle: { volatilityBucket: bucket, tradingStyle: style } },
   });
@@ -295,6 +399,9 @@ export async function getOptimizedPlan(
     avgReturnPct: row.avgReturnPct ? Number(row.avgReturnPct) : null,
     avgHoldingDays: row.avgHoldingDays ? Number(row.avgHoldingDays) : null,
     filledCount: row.filledCount,
+    oosWinRate: row.oosWinRate ? Number(row.oosWinRate) : null,
+    oosAvgReturnPct: row.oosAvgReturnPct ? Number(row.oosAvgReturnPct) : null,
+    oosFilledCount: row.oosFilledCount,
   };
 }
 

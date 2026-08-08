@@ -312,6 +312,12 @@ model OptimizedTradePlan {
   // forward without re-deriving live terciles on every request. See
   // lib/optimize/getVolatilityBucket.
   atrPctMax        Decimal?         @db.Decimal(6, 2)
+  // Out-of-sample: this plan's performance on the held-out TEST portion of
+  // history — days never used to select it. The train fields above (winRate,
+  // avgReturnPct) will always look at least as good as this; trust this one.
+  oosWinRate       Decimal?         @db.Decimal(6, 2)
+  oosAvgReturnPct  Decimal?         @db.Decimal(6, 2)
+  oosFilledCount   Int?
   updatedAt        DateTime         @updatedAt
 
   @@unique([volatilityBucket, tradingStyle])
