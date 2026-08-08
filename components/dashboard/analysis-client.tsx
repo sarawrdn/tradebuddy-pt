@@ -12,7 +12,6 @@ import {
 } from "@/components/dashboard/recommendation-history";
 import { UpgradeAlertBanner } from "@/components/dashboard/upgrade-alert-banner";
 import { TradingStyleToggle } from "@/components/dashboard/trading-style-toggle";
-import { BacktestCard } from "@/components/dashboard/backtest-card";
 import { safeJson } from "@/lib/utils";
 
 interface ScanResult {
@@ -171,8 +170,6 @@ export function AnalysisClient({
           </div>
         )}
       </div>
-
-      <BacktestCard />
 
       <div className="flex flex-col gap-6">
         <h2 className="text-xl font-semibold">Recommendation History</h2>
