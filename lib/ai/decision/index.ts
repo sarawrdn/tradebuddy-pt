@@ -8,6 +8,8 @@ import {
   estimateHoldingPeriod,
   calculateTradeLevels,
   STYLE_BOUNDS,
+  type TechnicalSummary,
+  type StyleBounds,
 } from "@/lib/indicators";
 import { getVolatilityBucket, getOptimizedPlan, getIndividualPlan } from "@/lib/optimize";
 import type { DecisionOutput } from "@/lib/ai/types";
@@ -57,6 +59,93 @@ const STYLE_LABEL: Record<TradingStyle, string> = {
 - holdingPeriod must be expressed in weeks or months (e.g. "1-3 months").
 - Day-to-day price fluctuation is expected and should not by itself trigger a SELL/WATCH downgrade.`,
 };
+
+interface TradeLevels {
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  reasoning: string[];
+}
+
+/**
+ * Tiered deterministic price-level selection, shared between the full AI
+ * Decision Agent and the DeepSeek-free rescan path: individual per-stock
+ * plan (real walk-forward evidence) > pooled volatility-bucket plan (for
+ * stocks without enough individual history) > the fixed support/resistance
+ * rule as a last resort. No AI involved — safe to call without hitting
+ * DeepSeek.
+ */
+export async function resolveTradeLevels(
+  symbol: string,
+  price: number,
+  tech: TechnicalSummary,
+  style: TradingStyle,
+  bounds: StyleBounds
+): Promise<{ tradeLevels: TradeLevels; technicalSectionAddendum: string }> {
+  let tradeLevels: TradeLevels | null = null;
+  let technicalSectionAddendum = "";
+
+  // Individual per-stock plan takes priority — it's validated with real
+  // rolling walk-forward evidence (multiple independent windows), not just
+  // a single train/test split. Only ever returned if `trusted` (passed at
+  // least half its walk-forward windows) — see
+  // lib/optimize/getIndividualPlan and optimizeIndividualPlans.
+  let individualPlan: Awaited<ReturnType<typeof getIndividualPlan>> = null;
+  if (style === "SWING") {
+    individualPlan = await getIndividualPlan(symbol, style);
+    if (individualPlan) {
+      const stopLoss = price * (1 - individualPlan.stopPct);
+      const takeProfit = price * (1 + individualPlan.targetPct);
+      tradeLevels = {
+        entryPrice: Number(price.toFixed(2)),
+        stopLoss: Number(stopLoss.toFixed(2)),
+        takeProfit: Number(takeProfit.toFixed(2)),
+        reasoning: [
+          `Entry/stop/target from a plan optimized on this stock's own history: stop ${(individualPlan.stopPct * 100).toFixed(1)}%, target ${(individualPlan.targetPct * 100).toFixed(1)}% — ${individualPlan.winRate?.toFixed(0) ?? "n/a"}% win rate, ${individualPlan.avgReturnPct !== null && individualPlan.avgReturnPct >= 0 ? "+" : ""}${individualPlan.avgReturnPct?.toFixed(2) ?? "n/a"}% avg return across ${individualPlan.filledCount} of this stock's own historical trades, validated by passing ${individualPlan.windowsPassed}/${individualPlan.totalWindows} independent rolling walk-forward windows.`,
+        ],
+      };
+      technicalSectionAddendum += `\n\nBacktested evidence specific to this stock (not a pooled group): ${individualPlan.filledCount} historical trades, ${individualPlan.winRate?.toFixed(0) ?? "n/a"}% win rate, ${individualPlan.avgReturnPct !== null && individualPlan.avgReturnPct >= 0 ? "+" : ""}${individualPlan.avgReturnPct?.toFixed(2) ?? "n/a"}% avg return, and it passed ${individualPlan.windowsPassed} of ${individualPlan.totalWindows} independent rolling walk-forward windows — real, stock-specific evidence, not a group average. Weigh this heavily when setting probabilityOfProfit.`;
+    }
+  }
+
+  // Fall back to the volatility-bucket plan (pooled across similar stocks)
+  // only if this stock doesn't have enough individual history to validate
+  // on its own yet.
+  const MIN_OOS_FILLED = 10;
+  let optimizedPlan: Awaited<ReturnType<typeof getOptimizedPlan>> = null;
+  if (!tradeLevels && tech.atrPct !== null && style === "SWING") {
+    const bucket = await getVolatilityBucket(tech.atrPct, style);
+    optimizedPlan = await getOptimizedPlan(bucket, style);
+    if (optimizedPlan && optimizedPlan.filledCount >= 20 && (optimizedPlan.oosFilledCount ?? 0) >= MIN_OOS_FILLED) {
+      const stopLoss = price * (1 - optimizedPlan.stopPct);
+      const takeProfit = price * (1 + optimizedPlan.targetPct);
+      tradeLevels = {
+        entryPrice: Number(price.toFixed(2)),
+        stopLoss: Number(stopLoss.toFixed(2)),
+        takeProfit: Number(takeProfit.toFixed(2)),
+        reasoning: [
+          `Entry/stop/target from a backtested-optimal plan for this stock's volatility bucket (${bucket}): stop ${(optimizedPlan.stopPct * 100).toFixed(1)}%, target ${(optimizedPlan.targetPct * 100).toFixed(1)}% — held-out (out-of-sample) test: ${optimizedPlan.oosWinRate?.toFixed(0) ?? "n/a"}% win rate, ${optimizedPlan.oosAvgReturnPct !== null && optimizedPlan.oosAvgReturnPct >= 0 ? "+" : ""}${optimizedPlan.oosAvgReturnPct?.toFixed(2) ?? "n/a"}% avg return across ${optimizedPlan.oosFilledCount} trades never used to pick this plan.`,
+        ],
+      };
+    }
+  }
+
+  if (!tradeLevels) {
+    tradeLevels = calculateTradeLevels(price, tech, style, bounds);
+  }
+
+  if (optimizedPlan) {
+    const overfitWarning =
+      optimizedPlan.oosAvgReturnPct !== null &&
+      optimizedPlan.avgReturnPct !== null &&
+      optimizedPlan.oosAvgReturnPct < optimizedPlan.avgReturnPct * 0.5
+        ? " Note: held-out performance is notably weaker than the in-sample number this plan was selected on — treat this bucket's edge with real skepticism."
+        : "";
+    technicalSectionAddendum += `\n\nBacktested evidence for this stock's volatility bucket, held-out/out-of-sample only (${optimizedPlan.oosFilledCount ?? 0} trades never used to select this plan): win rate ${optimizedPlan.oosWinRate?.toFixed(0) ?? "n/a"}%, avg return ${optimizedPlan.oosAvgReturnPct !== null && optimizedPlan.oosAvgReturnPct >= 0 ? "+" : ""}${optimizedPlan.oosAvgReturnPct?.toFixed(2) ?? "n/a"}%. Weigh this real historical performance when setting probabilityOfProfit — don't ignore it in favor of how the setup merely looks today.${overfitWarning}`;
+  }
+
+  return { tradeLevels, technicalSectionAddendum };
+}
 
 export async function runDecisionAgent(
   symbol: string,
@@ -110,63 +199,10 @@ Price levels:
 - 20-day low: ${tech.low20?.toFixed(2) ?? "n/a"} (price is ${tech.distanceFromLow20Pct !== null ? tech.distanceFromLow20Pct.toFixed(1) + "%" : "n/a"} from it — near 0% means at support)`;
       technicalSignalResult = deriveTechnicalSignal(tech);
 
-      // Individual per-stock plan takes priority — it's validated with real
-      // rolling walk-forward evidence (multiple independent windows), not
-      // just a single train/test split. Only ever returned if `trusted`
-      // (passed at least half its walk-forward windows) — see
-      // lib/optimize/getIndividualPlan and optimizeIndividualPlans.
-      let individualPlan: Awaited<ReturnType<typeof getIndividualPlan>> = null;
-      if (style === "SWING") {
-        individualPlan = await getIndividualPlan(symbol, style);
-        if (individualPlan) {
-          const stopLoss = price * (1 - individualPlan.stopPct);
-          const takeProfit = price * (1 + individualPlan.targetPct);
-          tradeLevels = {
-            entryPrice: Number(price.toFixed(2)),
-            stopLoss: Number(stopLoss.toFixed(2)),
-            takeProfit: Number(takeProfit.toFixed(2)),
-            reasoning: [
-              `Entry/stop/target from a plan optimized on this stock's own history: stop ${(individualPlan.stopPct * 100).toFixed(1)}%, target ${(individualPlan.targetPct * 100).toFixed(1)}% — ${individualPlan.winRate?.toFixed(0) ?? "n/a"}% win rate, ${individualPlan.avgReturnPct !== null && individualPlan.avgReturnPct >= 0 ? "+" : ""}${individualPlan.avgReturnPct?.toFixed(2) ?? "n/a"}% avg return across ${individualPlan.filledCount} of this stock's own historical trades, validated by passing ${individualPlan.windowsPassed}/${individualPlan.totalWindows} independent rolling walk-forward windows.`,
-            ],
-          };
-          technicalSection += `\n\nBacktested evidence specific to this stock (not a pooled group): ${individualPlan.filledCount} historical trades, ${individualPlan.winRate?.toFixed(0) ?? "n/a"}% win rate, ${individualPlan.avgReturnPct !== null && individualPlan.avgReturnPct >= 0 ? "+" : ""}${individualPlan.avgReturnPct?.toFixed(2) ?? "n/a"}% avg return, and it passed ${individualPlan.windowsPassed} of ${individualPlan.totalWindows} independent rolling walk-forward windows — real, stock-specific evidence, not a group average. Weigh this heavily when setting probabilityOfProfit.`;
-        }
-      }
-
-      // Fall back to the volatility-bucket plan (pooled across similar
-      // stocks) only if this stock doesn't have enough individual history
-      // to validate on its own yet.
-      const MIN_OOS_FILLED = 10;
-      let optimizedPlan: Awaited<ReturnType<typeof getOptimizedPlan>> = null;
-      if (!tradeLevels && tech.atrPct !== null && style === "SWING") {
-        const bucket = await getVolatilityBucket(tech.atrPct, style);
-        optimizedPlan = await getOptimizedPlan(bucket, style);
-        if (optimizedPlan && optimizedPlan.filledCount >= 20 && (optimizedPlan.oosFilledCount ?? 0) >= MIN_OOS_FILLED) {
-          const stopLoss = price * (1 - optimizedPlan.stopPct);
-          const takeProfit = price * (1 + optimizedPlan.targetPct);
-          tradeLevels = {
-            entryPrice: Number(price.toFixed(2)),
-            stopLoss: Number(stopLoss.toFixed(2)),
-            takeProfit: Number(takeProfit.toFixed(2)),
-            reasoning: [
-              `Entry/stop/target from a backtested-optimal plan for this stock's volatility bucket (${bucket}): stop ${(optimizedPlan.stopPct * 100).toFixed(1)}%, target ${(optimizedPlan.targetPct * 100).toFixed(1)}% — held-out (out-of-sample) test: ${optimizedPlan.oosWinRate?.toFixed(0) ?? "n/a"}% win rate, ${optimizedPlan.oosAvgReturnPct !== null && optimizedPlan.oosAvgReturnPct >= 0 ? "+" : ""}${optimizedPlan.oosAvgReturnPct?.toFixed(2) ?? "n/a"}% avg return across ${optimizedPlan.oosFilledCount} trades never used to pick this plan.`,
-            ],
-          };
-        }
-      }
-
-      if (!tradeLevels) {
-        tradeLevels = calculateTradeLevels(price, tech, style, bounds);
-      }
-
-      if (optimizedPlan) {
-        const overfitWarning =
-          optimizedPlan.oosAvgReturnPct !== null &&
-          optimizedPlan.avgReturnPct !== null &&
-          optimizedPlan.oosAvgReturnPct < optimizedPlan.avgReturnPct * 0.5
-            ? " Note: held-out performance is notably weaker than the in-sample number this plan was selected on — treat this bucket's edge with real skepticism."
-            : "";
-        technicalSection += `\n\nBacktested evidence for this stock's volatility bucket, held-out/out-of-sample only (${optimizedPlan.oosFilledCount ?? 0} trades never used to select this plan): win rate ${optimizedPlan.oosWinRate?.toFixed(0) ?? "n/a"}%, avg return ${optimizedPlan.oosAvgReturnPct !== null && optimizedPlan.oosAvgReturnPct >= 0 ? "+" : ""}${optimizedPlan.oosAvgReturnPct?.toFixed(2) ?? "n/a"}%. Weigh this real historical performance when setting probabilityOfProfit — don't ignore it in favor of how the setup merely looks today.${overfitWarning}`;
+      const resolved = await resolveTradeLevels(symbol, price, tech, style, bounds);
+      tradeLevels = resolved.tradeLevels;
+      if (resolved.technicalSectionAddendum) {
+        technicalSection += resolved.technicalSectionAddendum;
       }
     }
   } catch {

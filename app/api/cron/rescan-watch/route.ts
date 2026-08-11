@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rescanWatchStocks } from "@/lib/ai/rescan-watch";
 
-// Re-runs the Decision Agent for every WATCH stock in parallel, which can
-// exceed Vercel's default 10s Hobby-plan function timeout.
+// Rechecks the deterministic Data Signal for every WATCH stock (no DeepSeek
+// call — see lib/ai/rescan-watch), which can still exceed Vercel's default
+// 10s Hobby-plan function timeout with enough stocks + history fetches.
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
