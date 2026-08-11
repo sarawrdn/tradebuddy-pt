@@ -432,3 +432,101 @@ export async function getVolatilityBucket(atrPct: number, style: TradingStyle = 
   if (atrPct <= Number(mediumMax)) return "MEDIUM";
   return "HIGH";
 }
+
+export interface WalkForwardWindow {
+  windowIndex: number;
+  trainRange: [string, string]; // candle dates, inclusive
+  testRange: [string, string];
+  plan: TradePlan;
+  train: SplitPerformance;
+  test: SplitPerformance;
+}
+
+export interface WalkForwardResult {
+  numWindows: number;
+  windows: WalkForwardWindow[];
+  /** How many windows had a positive, non-degenerate TEST result — the
+   * headline number. A plan with real edge should pass most windows, not
+   * just one lucky split. */
+  windowsPassed: number;
+  /** How much the chosen stop%/target% varied window to window — a plan
+   * that picks wildly different "best" parameters each time isn't finding a
+   * stable edge, it's chasing whatever noise happened to be in that
+   * window's TRAIN data. Reported as the std deviation of stopPct across
+   * windows, in percentage points. */
+  stopPctStdDev: number | null;
+}
+
+/**
+ * True rolling walk-forward validation — stronger evidence than the single
+ * TRAIN/TEST split in optimizeTradePlans above, which only checks "does
+ * this hold up once." Splits history into `numWindows + 1` sequential
+ * chunks and, for each window, re-runs the full grid search on an
+ * expanding TRAIN (from the start up to that window) and checks the result
+ * on the NEXT chunk as TEST — mirroring how you'd actually re-evaluate a
+ * strategy each year with more data available. A plan with genuine edge
+ * should pass most windows independently, not just the one split that
+ * happened to be tried. Operates on a single candle series (one stock, or
+ * pre-pooled candles from multiple stocks in a bucket) rather than the
+ * whole universe, since each caller may want this at different granularity.
+ */
+export function runWalkForwardValidation(
+  candles: Candle[],
+  style: TradingStyle = "SWING",
+  numWindows = 4
+): WalkForwardResult | null {
+  const usableLength = candles.length - MIN_LOOKBACK;
+  if (usableLength < numWindows * 20) return null; // not enough history to split meaningfully
+
+  const plans = generateTradePlans(style);
+  const boundaries: number[] = [MIN_LOOKBACK];
+  for (let i = 1; i <= numWindows + 1; i++) {
+    boundaries.push(MIN_LOOKBACK + Math.floor((usableLength * i) / (numWindows + 1)));
+  }
+
+  const windows: WalkForwardWindow[] = [];
+
+  for (let w = 1; w <= numWindows; w++) {
+    const trainStart = boundaries[0];
+    const trainEnd = boundaries[w];
+    const testStart = boundaries[w];
+    const testEnd = boundaries[w + 1];
+
+    let best: { plan: TradePlan; trainOutcomes: PlanTradeOutcome[] } | null = null;
+    for (const plan of plans) {
+      const trainOutcomes = backtestPlanOnCandles(candles, plan, [trainStart, trainEnd]);
+      if (trainOutcomes.length < 5) continue; // each window has less data than a single 70/30 split
+      const avgReturn = trainOutcomes.reduce((sum, o) => sum + o.returnPct, 0) / trainOutcomes.length;
+      const bestAvgReturn = best
+        ? best.trainOutcomes.reduce((sum, o) => sum + o.returnPct, 0) / best.trainOutcomes.length
+        : -Infinity;
+      if (avgReturn > bestAvgReturn) best = { plan, trainOutcomes };
+    }
+
+    if (!best) continue;
+
+    const testOutcomes = backtestPlanOnCandles(candles, best.plan, [testStart, testEnd]);
+
+    windows.push({
+      windowIndex: w,
+      trainRange: [candles[trainStart]?.date.toISOString().slice(0, 10) ?? "", candles[Math.min(trainEnd, candles.length - 1)]?.date.toISOString().slice(0, 10) ?? ""],
+      testRange: [candles[testStart]?.date.toISOString().slice(0, 10) ?? "", candles[Math.min(testEnd - 1, candles.length - 1)]?.date.toISOString().slice(0, 10) ?? ""],
+      plan: best.plan,
+      train: summarizeOutcomes(best.trainOutcomes),
+      test: summarizeOutcomes(testOutcomes),
+    });
+  }
+
+  if (windows.length === 0) return null;
+
+  const windowsPassed = windows.filter((w) => w.test.avgReturnPct !== null && w.test.avgReturnPct > 0).length;
+
+  const stopPcts = windows.map((w) => w.plan.stopPct);
+  const meanStopPct = stopPcts.reduce((s, v) => s + v, 0) / stopPcts.length;
+  const stopPctStdDev =
+    stopPcts.length > 1
+      ? Math.sqrt(stopPcts.reduce((s, v) => s + (v - meanStopPct) ** 2, 0) / stopPcts.length) * 100
+      : null;
+
+  return { numWindows: windows.length, windows, windowsPassed, stopPctStdDev };
+}
