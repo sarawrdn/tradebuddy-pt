@@ -40,7 +40,7 @@ interface PlanTradeOutcome {
  * as many "separate" signals during one continuous trend — inflating the
  * sample size with correlated, not independent, trades. This mirrors how
  * one actually trades a single stock: one position at a time. */
-function backtestPlanOnCandles(
+export function backtestPlanOnCandles(
   candles: Candle[],
   plan: TradePlan,
   signalDayRange?: [number, number]
@@ -433,6 +433,143 @@ export async function getVolatilityBucket(atrPct: number, style: TradingStyle = 
   return "HIGH";
 }
 
+export interface BucketWalkForwardWindow {
+  windowIndex: number;
+  plan: TradePlan;
+  train: SplitPerformance;
+  test: SplitPerformance;
+}
+
+export interface BucketWalkForwardResult {
+  bucket: VolatilityBucket;
+  symbols: string[];
+  windows: BucketWalkForwardWindow[];
+  windowsPassed: number;
+  stopPctStdDev: number | null;
+}
+
+/**
+ * Bucket-level version of runWalkForwardValidation: instead of running on
+ * one stock's candles, pools the grid search and evaluation across every
+ * stock in the bucket for each window (same pooling approach as
+ * optimizeTradePlans' single split, just repeated per window). Each stock
+ * gets its own window boundaries based on its own history length, then
+ * outcomes from all stocks in the bucket are combined per window before
+ * picking/evaluating a plan — so a thin single stock doesn't skew one
+ * window's result.
+ *
+ * Read-only / reporting — does NOT persist anything to OptimizedTradePlan.
+ * Meant to be reviewed before deciding whether to wire this in as the
+ * actual live plan-selection method.
+ */
+function runBucketWalkForward(
+  stocksInBucket: { symbol: string; candles: Candle[] }[],
+  bucket: VolatilityBucket,
+  style: TradingStyle,
+  numWindows: number
+): BucketWalkForwardResult | null {
+  const plans = generateTradePlans(style);
+
+  const stockBoundaries = stocksInBucket.map((s) => {
+    const usableLength = s.candles.length - MIN_LOOKBACK;
+    const boundaries: number[] = [MIN_LOOKBACK];
+    for (let i = 1; i <= numWindows + 1; i++) {
+      boundaries.push(MIN_LOOKBACK + Math.floor((usableLength * i) / (numWindows + 1)));
+    }
+    return { symbol: s.symbol, candles: s.candles, boundaries };
+  });
+
+  const windows: BucketWalkForwardWindow[] = [];
+
+  for (let w = 1; w <= numWindows; w++) {
+    let best: { plan: TradePlan; trainOutcomes: PlanTradeOutcome[] } | null = null;
+
+    for (const plan of plans) {
+      const trainOutcomes = stockBoundaries.flatMap((s) =>
+        backtestPlanOnCandles(s.candles, plan, [s.boundaries[0], s.boundaries[w]])
+      );
+      if (trainOutcomes.length < 5) continue;
+      const avgReturn = trainOutcomes.reduce((sum, o) => sum + o.returnPct, 0) / trainOutcomes.length;
+      const bestAvgReturn = best
+        ? best.trainOutcomes.reduce((sum, o) => sum + o.returnPct, 0) / best.trainOutcomes.length
+        : -Infinity;
+      if (avgReturn > bestAvgReturn) best = { plan, trainOutcomes };
+    }
+
+    if (!best) continue;
+
+    const testOutcomes = stockBoundaries.flatMap((s) =>
+      backtestPlanOnCandles(s.candles, best!.plan, [s.boundaries[w], s.boundaries[w + 1]])
+    );
+
+    windows.push({
+      windowIndex: w,
+      plan: best.plan,
+      train: summarizeOutcomes(best.trainOutcomes),
+      test: summarizeOutcomes(testOutcomes),
+    });
+  }
+
+  if (windows.length === 0) return null;
+
+  const windowsPassed = windows.filter((w) => w.test.avgReturnPct !== null && w.test.avgReturnPct > 0).length;
+  const stopPcts = windows.map((w) => w.plan.stopPct);
+  const meanStopPct = stopPcts.reduce((s, v) => s + v, 0) / stopPcts.length;
+  const stopPctStdDev =
+    stopPcts.length > 1
+      ? Math.sqrt(stopPcts.reduce((s, v) => s + (v - meanStopPct) ** 2, 0) / stopPcts.length) * 100
+      : null;
+
+  return {
+    bucket,
+    symbols: stocksInBucket.map((s) => s.symbol),
+    windows,
+    windowsPassed,
+    stopPctStdDev,
+  };
+}
+
+/**
+ * Reporting-only: runs bucket-level walk-forward validation across the
+ * whole universe and returns the results without persisting anything. Use
+ * this to review whether walk-forward-based selection actually looks
+ * trustworthy before wiring it into optimizeTradePlans' persisted output.
+ */
+export async function reportWalkForwardValidation(
+  style: TradingStyle = "SWING",
+  days = 500,
+  numWindows = 4
+): Promise<BucketWalkForwardResult[]> {
+  const universe = await getShariahUniverse();
+
+  const stockData: { symbol: string; candles: Candle[]; atrPct: number }[] = [];
+  for (const stock of universe) {
+    const candles = await getExtendedHistory(stock.symbol, days);
+    const atrPct = currentAtrPct(candles);
+    if (atrPct !== null && candles.length > MIN_LOOKBACK) {
+      stockData.push({ symbol: stock.symbol, candles, atrPct });
+    }
+  }
+
+  stockData.sort((a, b) => a.atrPct - b.atrPct);
+  const third = Math.ceil(stockData.length / 3);
+  const buckets: Record<VolatilityBucket, typeof stockData> = {
+    LOW: stockData.slice(0, third),
+    MEDIUM: stockData.slice(third, third * 2),
+    HIGH: stockData.slice(third * 2),
+  };
+
+  const results: BucketWalkForwardResult[] = [];
+  for (const bucket of ["LOW", "MEDIUM", "HIGH"] as VolatilityBucket[]) {
+    const stocksInBucket = buckets[bucket];
+    if (stocksInBucket.length === 0) continue;
+    const result = runBucketWalkForward(stocksInBucket, bucket, style, numWindows);
+    if (result) results.push(result);
+  }
+
+  return results;
+}
+
 export interface WalkForwardWindow {
   windowIndex: number;
   trainRange: [string, string]; // candle dates, inclusive
@@ -529,4 +666,130 @@ export function runWalkForwardValidation(
       : null;
 
   return { numWindows: windows.length, windows, windowsPassed, stopPctStdDev };
+}
+
+const MIN_WINDOWS_PASSED_RATIO = 0.5;
+const MIN_INDIVIDUAL_FILLED = 8;
+
+export interface IndividualPlanData {
+  symbol?: string;
+  stopPct: number;
+  targetPct: number;
+  winRate: number | null;
+  avgReturnPct: number | null;
+  filledCount: number;
+  windowsPassed: number;
+  totalWindows: number;
+  trusted: boolean;
+}
+
+/**
+ * Optimizes and persists a per-stock plan for every stock in the universe:
+ * grid-search the best stop%/target% on that stock's own FULL history (more
+ * data per decision than a single 70/30 split), then gate trust by rolling
+ * walk-forward — a stock is only "trusted" if its plan held up on at least
+ * half of the independent walk-forward windows, not just looked good in
+ * aggregate. This is what catches a stock like BMY: 89% win rate and +5.11%
+ * avg return on paper, but only 1 of 4 walk-forward windows actually passed
+ * — a plan that got lucky once, not a real repeatable edge.
+ */
+export async function optimizeIndividualPlans(
+  style: TradingStyle = "SWING",
+  days = 500,
+  numWindows = 4
+): Promise<IndividualPlanData[]> {
+  const universe = await getShariahUniverse();
+  const plans = generateTradePlans(style);
+  const results: IndividualPlanData[] = [];
+
+  for (const stock of universe) {
+    const candles = await getExtendedHistory(stock.symbol, days);
+    if (candles.length <= MIN_LOOKBACK) continue;
+
+    let best: { plan: TradePlan; outcomes: PlanTradeOutcome[] } | null = null;
+    for (const plan of plans) {
+      const outcomes = backtestPlanOnCandles(candles, plan);
+      if (outcomes.length < MIN_INDIVIDUAL_FILLED) continue;
+      const avgReturn = outcomes.reduce((sum, o) => sum + o.returnPct, 0) / outcomes.length;
+      const bestAvgReturn = best
+        ? best.outcomes.reduce((sum, o) => sum + o.returnPct, 0) / best.outcomes.length
+        : -Infinity;
+      if (avgReturn > bestAvgReturn) best = { plan, outcomes };
+    }
+
+    if (!best) continue;
+
+    const wf = runWalkForwardValidation(candles, style, numWindows);
+    const totalWindows = wf?.windows.length ?? 0;
+    const windowsPassed = wf?.windowsPassed ?? 0;
+    const trusted = totalWindows > 0 && windowsPassed / totalWindows >= MIN_WINDOWS_PASSED_RATIO;
+
+    const wins = best.outcomes.filter((o) => o.outcome === "WIN").length;
+    const winRate = (wins / best.outcomes.length) * 100;
+    const avgReturnPct = best.outcomes.reduce((sum, o) => sum + o.returnPct, 0) / best.outcomes.length;
+
+    const data: IndividualPlanData = {
+      symbol: stock.symbol,
+      stopPct: best.plan.stopPct,
+      targetPct: best.plan.targetPct,
+      winRate,
+      avgReturnPct,
+      filledCount: best.outcomes.length,
+      windowsPassed,
+      totalWindows,
+      trusted,
+    };
+    results.push(data);
+
+    await prisma.individualTradePlan.upsert({
+      where: { symbol_tradingStyle: { symbol: stock.symbol, tradingStyle: style } },
+      update: {
+        stopPct: data.stopPct,
+        targetPct: data.targetPct,
+        winRate: data.winRate,
+        avgReturnPct: data.avgReturnPct,
+        filledCount: data.filledCount,
+        windowsPassed: data.windowsPassed,
+        totalWindows: data.totalWindows,
+        trusted: data.trusted,
+      },
+      create: {
+        symbol: stock.symbol,
+        tradingStyle: style,
+        stopPct: data.stopPct,
+        targetPct: data.targetPct,
+        winRate: data.winRate,
+        avgReturnPct: data.avgReturnPct,
+        filledCount: data.filledCount,
+        windowsPassed: data.windowsPassed,
+        totalWindows: data.totalWindows,
+        trusted: data.trusted,
+      },
+    });
+  }
+
+  return results;
+}
+
+/** Live lookup for the Decision Agent — only ever returns a plan if it's
+ * `trusted` (passed enough walk-forward windows), otherwise null so callers
+ * fall back to calculateTradeLevels. */
+export async function getIndividualPlan(
+  symbol: string,
+  style: TradingStyle = "SWING"
+): Promise<IndividualPlanData | null> {
+  const row = await prisma.individualTradePlan.findUnique({
+    where: { symbol_tradingStyle: { symbol, tradingStyle: style } },
+  });
+  if (!row || !row.trusted) return null;
+  return {
+    stopPct: Number(row.stopPct),
+    targetPct: Number(row.targetPct),
+    winRate: row.winRate ? Number(row.winRate) : null,
+    avgReturnPct: row.avgReturnPct ? Number(row.avgReturnPct) : null,
+    filledCount: row.filledCount,
+    windowsPassed: row.windowsPassed,
+    totalWindows: row.totalWindows,
+    trusted: row.trusted,
+  };
 }

@@ -324,6 +324,38 @@ model OptimizedTradePlan {
 }
 
 // ---------------------------------------------------------------------------
+// Individual Trade Plans
+//
+// Per-stock stop%/target% plan, optimized on that stock's own full history
+// and gated by real rolling walk-forward validation (not the single-split
+// bucket approach above) — replaces bucket pooling once a stock has enough
+// individual history to validate on its own. See lib/optimize/
+// optimizeIndividualPlans.
+// ---------------------------------------------------------------------------
+
+model IndividualTradePlan {
+  id             String       @id @default(cuid())
+  symbol         String
+  tradingStyle   TradingStyle @default(SWING)
+  stopPct        Decimal      @db.Decimal(6, 4)
+  targetPct      Decimal      @db.Decimal(6, 4)
+  winRate        Decimal?     @db.Decimal(6, 2)
+  avgReturnPct   Decimal?     @db.Decimal(6, 2)
+  filledCount    Int
+  // Rolling walk-forward record — the actual trust signal. A plan with a
+  // great winRate/avgReturnPct above but a poor windowsPassed ratio is
+  // exactly the "looked great, wasn't consistent over time" trap this table
+  // exists to catch (see BMY: 89% win rate historically, but only passed
+  // 1 of 4 walk-forward windows).
+  windowsPassed  Int
+  totalWindows   Int
+  trusted        Boolean
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([symbol, tradingStyle])
+}
+
+// ---------------------------------------------------------------------------
 // Paper Trading (PRD 11 - Roadmap Phase 3: Paper trading, AI performance scoring)
 //
 // Simulated trades derived from an approved AI recommendation. No real money

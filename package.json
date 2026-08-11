@@ -11,7 +11,10 @@
     "seed:shariah": "node --env-file=.env --import tsx scripts/import-shariah/index.ts",
     "warm:history": "node --env-file=.env --import tsx scripts/warm-price-history/index.ts",
     "backtest:universe": "node --env-file=.env --import tsx scripts/backtest-universe/index.ts",
-    "optimize:trade-plans": "node --env-file=.env --import tsx scripts/optimize-trade-plans/index.ts"
+    "optimize:trade-plans": "node --env-file=.env --import tsx scripts/optimize-trade-plans/index.ts",
+    "optimize:individual-plans": "node --env-file=.env --import tsx scripts/optimize-individual-plans/index.ts",
+    "report:walkforward": "node --env-file=.env --import tsx scripts/report-walkforward/index.ts",
+    "report:walkforward-perstock": "node --env-file=.env --import tsx scripts/report-walkforward-perstock/index.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",
