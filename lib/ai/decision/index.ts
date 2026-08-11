@@ -1,5 +1,5 @@
 import { getDeepSeekClient } from "@/lib/ai/deepseek";
-import { getQuote } from "@/lib/market";
+import { getQuote, getCompanyNews } from "@/lib/market";
 import { getExtendedHistory } from "@/lib/market-history";
 import { prisma } from "@/lib/prisma";
 import {
@@ -33,6 +33,9 @@ Rules:
   it plays out, as percentages. These are estimates for context, not guarantees.
 - Weigh which indicators actually matter for this specific setup and say so in supportingReasons —
   don't treat every indicator as equally important every time.
+- If recent news headlines are provided, treat them as real evidence too — a bullish setup with bad
+  news (e.g. a lawsuit, downgrade, missed earnings) is a real reason to be more cautious, and vice
+  versa. If no news is provided, don't invent any; say the technical picture is all you have.
 - Risk level is LOW, MEDIUM, or HIGH.
 - Keep the investment thesis to 2-3 sentences, explainable to a retail investor.
 - Do NOT set entry/stop-loss/take-profit prices — those are calculated separately from real
@@ -222,6 +225,21 @@ Price levels:
     };
   }
 
+  // Best-effort — the only place the system sees anything beyond
+  // price/volume. A failure here shouldn't block a recommendation, same as
+  // a missing price-history fetch.
+  let newsSection = "No recent news available.";
+  try {
+    const news = await getCompanyNews(symbol, 7, 5);
+    if (news.length > 0) {
+      newsSection = news
+        .map((n) => `- [${n.datetime.toISOString().slice(0, 10)}, ${n.source}] ${n.headline} — ${n.summary}`)
+        .join("\n");
+    }
+  } catch {
+    // Finnhub news unavailable/rate-limited — proceed without it.
+  }
+
   const userPrompt = `Symbol: ${symbol}
 Current price: ${quote.price}
 Day change: ${quote.change} (${quote.changePercent}%)
@@ -234,12 +252,15 @@ As of: ${quote.asOf.toISOString()}
 Technical indicators (last 20-30 trading days):
 ${technicalSection}
 
+Recent news (last 7 days, most recent first):
+${newsSection}
+
 Use the technical indicators above as real evidence for your confidence level. Multiple indicators
 agreeing (e.g. uptrend + healthy RSI + bullish MACD + above-average volume + room before resistance)
 is legitimate grounds for real confidence — don't stay artificially conservative when the evidence
 lines up. Conversely, indicators conflicting with each other (e.g. price near its 20-day high while
-MACD is turning negative) is a real reason to stay cautious. Still no fundamentals or news are
-available; say so in the thesis if that would materially change the call.`;
+MACD is turning negative) is a real reason to stay cautious. Still no broader fundamentals (revenue,
+debt, valuation) are available; say so in the thesis if that would materially change the call.`;
 
   const completion = await client.chat.completions.create({
     model: "deepseek-chat",

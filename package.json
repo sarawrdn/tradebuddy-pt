@@ -15,7 +15,9 @@
     "optimize:individual-plans": "node --env-file=.env --import tsx scripts/optimize-individual-plans/index.ts",
     "report:walkforward": "node --env-file=.env --import tsx scripts/report-walkforward/index.ts",
     "report:walkforward-perstock": "node --env-file=.env --import tsx scripts/report-walkforward-perstock/index.ts",
-    "check:accuracy": "node --env-file=.env --import tsx scripts/check-accuracy/index.ts"
+    "check:accuracy": "node --env-file=.env --import tsx scripts/check-accuracy/index.ts",
+    "optimize:individual-plans:ci": "node --import tsx scripts/optimize-individual-plans/index.ts",
+    "discover:stocks": "node --env-file=.env --import tsx scripts/discover-stocks/index.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",

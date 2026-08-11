@@ -1,0 +1,26 @@
+name: Re-optimize individual trade plans
+
+on:
+  schedule:
+    # Weekly, Monday 6am UTC — re-validates every active stock's plan
+    # against a rolling walk-forward window as new trading days accumulate.
+    # Runs here (not Vercel Cron) because it needs several sequential
+    # Twelve Data fetches at ~8s spacing to stay under the free-tier rate
+    # limit, which doesn't reliably fit inside Vercel Hobby's function
+    # timeout — same reason as the backtest:universe / warm:history scripts.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  reoptimize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run optimize:individual-plans:ci
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}

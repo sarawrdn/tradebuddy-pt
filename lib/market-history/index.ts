@@ -126,17 +126,28 @@ export async function getDailyHistory(symbol: string): Promise<Candle[]> {
  * backtesting, which needs enough history to both compute indicators AND
  * walk forward through many past "decision days". Shares the same
  * PriceHistory cache/upsert as getDailyHistory, so running a backtest also
- * warms the regular cache as a side effect. Only re-fetches from Twelve
- * Data if we don't already have at least `days` cached candles for this
- * symbol — a backtest window doesn't need "fetched today" freshness the
- * way live indicators do, since it's historical by definition.
+ * warms the regular cache as a side effect.
+ *
+ * Re-fetches if we don't already have at least `days` cached candles, OR if
+ * the cache hasn't been updated today — without the second check, once a
+ * symbol first reaches `days` cached candles the window would freeze
+ * forever: new trading days would never get pulled in, and periodic
+ * re-validation (see scripts/optimize-individual-plans run on a schedule)
+ * would just keep re-analyzing the exact same historical window instead of
+ * rolling forward with real time. This mirrors getDailyHistory's own
+ * once-per-day freshness check.
  */
 export async function getExtendedHistory(symbol: string, days: number): Promise<Candle[]> {
   const stock = await getOrCreateStock(symbol);
 
   const cachedCount = await prisma.priceHistory.count({ where: { stockId: stock.id } });
+  const lastFetch = await prisma.priceHistory.findFirst({
+    where: { stockId: stock.id },
+    orderBy: { updatedAt: "desc" },
+  });
+  const isFresh = lastFetch && lastFetch.updatedAt >= startOfToday();
 
-  if (cachedCount < days) {
+  if (cachedCount < days || !isFresh) {
     const candles = await fetchDailyHistory(symbol, days);
     for (const c of candles) {
       await prisma.priceHistory.upsert({
